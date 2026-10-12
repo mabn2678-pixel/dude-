@@ -1,0 +1,90 @@
+<resources>
+    <string name="app_name">VidGet</string>
+    <string name="status_initializing">جارٍ تهيئة محرك التحميل...</string>
+    <string name="status_ready">محرك التحميل جاهز للعمل.</string>
+    <string name="status_error">فشل تهيئة محرك التحميل: %1$s</string>
+    <string name="notification_channel_name">تنزيلات الفيديو</string>
+    <string name="notification_channel_description">إشعارات عمليات التحميل الجارية والمكتملة</string>
+
+    <!-- Theme & Settings Strings -->
+    <string name="theme_mode_title">وضع المظهر</string>
+    <string name="theme_system">تلقائي (حسب النظام)</string>
+    <string name="theme_light">فاتح</string>
+    <string name="theme_dark">داكن</string>
+    <string name="dynamic_color_title">الألوان الديناميكية (Material You)</string>
+
+    <!-- Component Preview Strings -->
+    <string name="preview_primary_action">إجراء رئيسي</string>
+    <string name="preview_secondary_action">إجراء ثانوي</string>
+    <string name="preview_card_title">بطاقة تجريبية للمكونات</string>
+    <string name="preview_card_description">معاينة عناصر التصميم وألوان الثيم المحددة</string>
+    <string name="preview_badge_success">ناجح</string>
+    <string name="preview_badge_warning">تحذير</string>
+    <string name="preview_badge_error">خطأ</string>
+    <string name="preview_bottom_sheet_title">ترويسة اللوحة السفلية</string>
+
+    <!-- Typography Preview Strings -->
+    <string name="typography_preview_title">نظام الخطوط والطباعة</string>
+    <string name="typography_arabic_sample_title">عينة الخط العربي (خط Cairo)</string>
+    <string name="typography_english_sample_title">عينة الخط الإنجليزي (خط Inter)</string>
+    <string name="typography_arabic_long_text">تَطْبِيقُ VidGet لِتَحْمِيلِ مَقَاطِعِ الفِيدْيُو وَالمَلَفَّاتِ الصَّوْتِيَّةِ بِدِقَّةٍ فَائِقَةٍ وَسُرْعَةٍ عَالِيَةٍ، يَدْعَمُ اسْتِئْنَافَ التَّحْمِيلَاتِ وَمُعَالَجَةَ الوَسَائِطِ المُتَعَدِّدَةِ بِدِقَّةٍ وَاحْتِرَافِيَّةٍ كَامِلَةٍ دُونَ أَيِّ قَصٍّ لِلْحُرُوفِ أَوِ التَّشْكِيلِ.</string>
+    <string name="typography_english_long_text">VidGet is a high-performance video downloader engineered with Clean Architecture, background multi-stream downloading, and seamless media post-processing pipelines.</string>
+    <string name="typography_metrics_speed_label">سرعة التنزيل والوقت المتبقي والنسبة (أرقام ثابتة العرض tnum)</string>
+    <string name="typography_metrics_speed_value">14.8 MB/s • ETA 00:32 • 74.5%</string>
+
+    <!-- Navigation & Bottom Bar Strings -->
+    <string name="nav_home">الرئيسية</string>
+    <string name="nav_downloads">التنزيلات</string>
+    <string name="nav_library">المكتبة</string>
+    <string name="nav_settings">الإعدادات</string>
+    <string name="action_back">رجوع</string>
+
+    <!-- Onboarding Strings -->
+    <string name="onboarding_skip">تخطي</string>
+    <string name="onboarding_next">التالي</string>
+    <string name="onboarding_start">ابدأ الآن</string>
+    <string name="onboarding_title_1">الصق الرابط واختر الجودة</string>
+    <string name="onboarding_desc_1">تنزيل سريع وبسيط لمقاطع الفيديو والصوتيات بأعلى الجودات وبضغطة واحدة.</string>
+    <string name="onboarding_title_2">تحميل سريع في الخلفية</string>
+    <string name="onboarding_desc_2">محرك تنزيل متقدم مدعوم بتعدد الاتصالات والاستئناف التلقائي.</string>
+    <string name="onboarding_title_3">اختر مكان الحفظ ومنح الأذونات لاحقًا عند الحاجة</string>
+    <string name="onboarding_desc_3">لا نطلب أي إذن الآن، ستمنح الإذن فقط عندما ترغب في تنزيل أول ملف لك.</string>
+
+    <!-- Destination Screen Placeholder Titles -->
+    <string name="screen_home_title">الرئيسية</string>
+    <string name="screen_downloads_title">التنزيلات</string>
+    <string name="screen_library_title">المكتبة</string>
+    <string name="screen_settings_title">الإعدادات</string>
+    <string name="screen_player_title">مشغل الفيديو</string>
+    <string name="screen_language_title">إعدادات اللغة</string>
+    <string name="screen_about_title">حول VidGet</string>
+
+    <!-- Permissions Dialog Strings -->
+    <string name="action_continue">متابعة</string>
+    <string name="action_not_now">ليس الآن</string>
+    <string name="action_open_settings">فتح الإعدادات</string>
+    <string name="action_battery_optimization">تجاهل تحسين البطارية</string>
+    <string name="action_battery_optimization_desc">لضمان استمرار التحميلات الطويلة في الخلفية دون توقف.</string>
+
+    <string name="perm_notif_title">السماح بإشعارات التنزيل</string>
+    <string name="perm_notif_desc">نحتاج إذن الإشعارات لإظهار تقدم التنزيل وإعلامك فور اكتمال الملفات.</string>
+    <string name="perm_notif_rationale_title">أهمية إشعارات التنزيل</string>
+    <string name="perm_notif_rationale_desc">تتيح لك الإشعارات متابعة سرعة التحميل وإيقافه مؤقتاً ومعرفة وقت الانتهاء دون إبقاء التطبيق مفتوحاً.</string>
+    <string name="perm_notif_settings_title">تفعيل الإشعارات من الإعدادات</string>
+    <string name="perm_notif_settings_desc">تم تعطيل الإشعارات نهائياً. يرجى تفعيلها من إعدادات التطبيق لتتمكن من متابعة التحميلات.</string>
+    <string name="perm_notif_silent_notice">سيستمر التحميل بالخلفية بدون إشعارات تقدم.</string>
+
+    <string name="perm_storage_write_title">إذن حفظ التنزيلات العامة</string>
+    <string name="perm_storage_write_desc">يتطلب حفظ الملفات في مجلد التنزيلات العام على هذا الإصدار من النظام إذن التخزين.</string>
+    <string name="perm_storage_write_rationale_title">لماذا نحتاج إذن التخزين</string>
+    <string name="perm_storage_write_rationale_desc">في إصدارات أندرويد 9 وأقدم، إذن التخزين إلزامي لتتمكن من حفظ مقاطع الفيديو في معرض الجهاز العام.</string>
+    <string name="perm_storage_write_settings_title">منح إذن التخزين من الإعدادات</string>
+    <string name="perm_storage_write_settings_desc">تم رفض إذن التخزين بشكل دائم. يرجى منحه من إعدادات التطبيق لتتمكن من الحفظ في المجلد العام.</string>
+
+    <string name="perm_media_read_title">عرض الفيديوهات الخارجية بالمكتبة</string>
+    <string name="perm_media_read_desc">لعرض وتشغيل الفيديوهات المخزنة خارج التطبيق، يلزم السماح بالوصول لوسائط الجهاز.</string>
+    <string name="perm_media_read_rationale_title">الوصول إلى وسائط المكتبة</string>
+    <string name="perm_media_read_rationale_desc">يُستخدم هذا الإذن حصرياً لعرض مقاطع الفيديو والصوتيات الموجودة في ذاكرة هاتفك داخل المكتبة.</string>
+    <string name="perm_media_read_settings_title">منح إذن الوسائط من الإعدادات</string>
+    <string name="perm_media_read_settings_desc">تم رفض إذن الوسائط بشكل دائم. يرجى تفعيله من الإعدادات لتصفح الملفات الخارجية في المكتبة.</string>
+</resources>

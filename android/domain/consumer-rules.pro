@@ -1,0 +1,1 @@
+# Domain consumer rules

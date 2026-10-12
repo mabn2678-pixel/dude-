@@ -1,0 +1,6 @@
+{
+  "name": "VidGet - Android Video Downloader",
+  "description": "Clean Architecture Android Video Downloader project scaffold with Jetpack Compose, Hilt, yt-dlp, FFmpeg, and aria2c",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
