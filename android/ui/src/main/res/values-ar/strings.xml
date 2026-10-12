@@ -80,4 +80,45 @@
     <string name="perm_media_read_rationale_desc">يُستخدم هذا الإذن حصرياً لعرض مقاطع الفيديو والصوتيات الموجودة في ذاكرة هاتفك داخل المكتبة.</string>
     <string name="perm_media_read_settings_title">منح إذن الوسائط من الإعدادات</string>
     <string name="perm_media_read_settings_desc">تم رفض إذن الوسائط بشكل دائم. يرجى تفعيله من الإعدادات لتصفح الملفات الخارجية في المكتبة.</string>
+
+    <!-- نصوص اختيار الوجهة وإدارة التخزين -->
+    <string name="dest_picker_title">مكان حفظ الملفات</string>
+    <string name="dest_picker_desc">اختر المجلد الذي تُحفظ فيه مقاطع الفيديو والصوتيات المكتملة</string>
+    <string name="dest_downloads_title">مجلد التنزيلات الافتراضي</string>
+    <string name="dest_downloads_path">Downloads/VidGet</string>
+    <string name="dest_movies_title">الأفلام والموسيقى</string>
+    <string name="dest_movies_path">Movies/VidGet (الفيديو) • Music/VidGet (الصوت)</string>
+    <string name="dest_custom_title">مجلد مخصص</string>
+    <string name="dest_custom_desc">تحديد مجلد تختاره بنفسك من ذاكرة الهاتف</string>
+    <string name="dest_sdcard_title">بطاقة الذاكرة الخارجية SD Card</string>
+    <string name="dest_sdcard_desc">الحفظ المباشر على وحدة التخزين الخارجية</string>
+    <string name="dest_sdcard_hint">تلميح: افتح القائمة الجانبية واختر جذر بطاقة الذاكرة SD</string>
+    <string name="dest_change_btn">تغيير</string>
+    <string name="dest_free_space">المساحة الحرة: %1$s (%2$d%%)</string>
+    <string name="dest_permission_revoked_warning">انتهت صلاحية إذن المجلد المختار، يرجى إعادة اختياره.</string>
+
+    <!-- نصوص نافذة المساحة غير كافية -->
+    <string name="insufficient_space_title">المساحة غير كافية</string>
+    <string name="insufficient_space_message">لا يمكن بدء التحميل. المساحة المطلوبة: %1$s، المساحة المتاحة: %2$s.</string>
+    <string name="insufficient_space_action_ok">حسناً</string>
+
+    <!-- نصوص قالب التسمية والتنظيم -->
+    <string name="naming_template_title">قالب تسمية الملفات</string>
+    <string name="naming_template_preview_label">معاينة حيّة</string>
+    <string name="naming_template_hint">المتغيرات المسموحة: {title} {quality} {ext} {platform} {date} {id}</string>
+    <string name="subfolder_org_title">تنظيم المجلدات الفرعية</string>
+    <string name="subfolder_org_none">بدون مجلد فرعي (مباشر)</string>
+    <string name="subfolder_org_platform">بحسب المنصة (مثل YouTube)</string>
+    <string name="subfolder_org_date">بحسب التاريخ (yyyy-MM)</string>
+
+    <!-- نصوص معالجة تعارض الأسماء -->
+    <string name="conflict_dialog_title">الملف موجود مسبقاً</string>
+    <string name="conflict_dialog_desc">يوجد ملف آخر يحمل الاسم \"%1$s\" في مجلد الحفظ.</string>
+    <string name="conflict_opt_auto_rename">إعادة تسمية تلقائية (1)</string>
+    <string name="conflict_opt_overwrite">استبدال</string>
+    <string name="conflict_opt_skip">تخطي</string>
+    <string name="conflict_opt_ask_every_time">اسأل كل مرة</string>
+
+    <!-- نص تقدم الحفظ -->
+    <string name="status_saving_file">جارٍ الحفظ… %1$d%%</string>
 </resources>

@@ -24,6 +24,12 @@ abstract class PreferencesBindingModule {
     abstract fun bindThemePreferencesRepository(
         impl: ThemePreferencesRepositoryImpl
     ): ThemePreferencesRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindDestinationRepository(
+        impl: com.vidget.data.repository.DestinationRepositoryImpl
+    ): com.vidget.domain.repository.DestinationRepository
 }
 
 @Module

@@ -80,4 +80,45 @@
     <string name="perm_media_read_rationale_desc">This permission is used solely to discover and play your local device video files within the library.</string>
     <string name="perm_media_read_settings_title">Grant Media Access in Settings</string>
     <string name="perm_media_read_settings_desc">Media permission was permanently declined. Please enable it in app settings to view external media.</string>
+
+    <!-- Destination & Storage Management Strings -->
+    <string name="dest_picker_title">Storage Destination</string>
+    <string name="dest_picker_desc">Choose where completed videos and audio are saved</string>
+    <string name="dest_downloads_title">Downloads Folder</string>
+    <string name="dest_downloads_path">Downloads/VidGet</string>
+    <string name="dest_movies_title">Movies &amp; Music</string>
+    <string name="dest_movies_path">Movies/VidGet (Video) • Music/VidGet (Audio)</string>
+    <string name="dest_custom_title">Custom Folder</string>
+    <string name="dest_custom_desc">Select a specific directory on your device</string>
+    <string name="dest_sdcard_title">SD Card</string>
+    <string name="dest_sdcard_desc">Save directly to external removable storage</string>
+    <string name="dest_sdcard_hint">Tip: Open the side drawer and select the root of your SD Card</string>
+    <string name="dest_change_btn">Change</string>
+    <string name="dest_free_space">Free: %1$s (%2$d%%)</string>
+    <string name="dest_permission_revoked_warning">Folder permission expired. Please select a folder again.</string>
+
+    <!-- Insufficient Space Dialog Strings -->
+    <string name="insufficient_space_title">Insufficient Storage Space</string>
+    <string name="insufficient_space_message">Cannot start download. Required: %1$s, Available: %2$s.</string>
+    <string name="insufficient_space_action_ok">OK</string>
+
+    <!-- File Naming & Organization Strings -->
+    <string name="naming_template_title">File Naming Template</string>
+    <string name="naming_template_preview_label">Live Preview</string>
+    <string name="naming_template_hint">Allowed tokens: {title}, {quality}, {ext}, {platform}, {date}, {id}</string>
+    <string name="subfolder_org_title">Subfolder Organization</string>
+    <string name="subfolder_org_none">None (Direct)</string>
+    <string name="subfolder_org_platform">By Platform (e.g. YouTube)</string>
+    <string name="subfolder_org_date">By Date (yyyy-MM)</string>
+
+    <!-- Conflict Resolution Strings -->
+    <string name="conflict_dialog_title">File Already Exists</string>
+    <string name="conflict_dialog_desc">A file named \"%1$s\" already exists in the destination folder.</string>
+    <string name="conflict_opt_auto_rename">Auto Rename (1)</string>
+    <string name="conflict_opt_overwrite">Overwrite</string>
+    <string name="conflict_opt_skip">Skip</string>
+    <string name="conflict_opt_ask_every_time">Ask every time</string>
+
+    <!-- Saving In-Progress String -->
+    <string name="status_saving_file">Saving to destination… %1$d%%</string>
 </resources>

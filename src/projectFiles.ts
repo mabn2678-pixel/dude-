@@ -8,337 +8,586 @@ export interface ProjectFile {
 }
 
 export const PROJECT_FILES: ProjectFile[] = [
-  // --- Permissions Architecture (Prompt 5) ---
+  // --- Storage & Destination (Prompt 6) ---
   {
-    path: 'core/src/main/java/com/vidget/core/permission/PermissionPolicy.kt',
-    name: 'PermissionPolicy.kt',
+    path: 'core/src/main/java/com/vidget/core/storage/StorageSpaceChecker.kt',
+    name: 'StorageSpaceChecker.kt',
     module: 'core',
     language: 'kotlin',
-    description: 'محرك قرارات الأذونات بحسب إصدار Android وسياق الاستخدام (POST_NOTIFICATIONS, WRITE_EXTERNAL_STORAGE maxSdk=28, READ_MEDIA)',
-    content: `package com.vidget.core.permission
+    description: 'فحص مساحة التخزين قبل البدء (1.10x للمؤقت + 2x لعملية دمج المسارين المنفصلين عبر StatFs)',
+    content: `package com.vidget.core.storage
 
-import android.Manifest
-import android.os.Build
+import android.content.Context
+import android.os.Environment
+import android.os.StatFs
+import java.io.File
+import kotlin.math.max
 
-/**
- * Pure decision engine defining exact runtime permissions required based on Android SDK level
- * and feature context. Strictly adheres to Google Play privacy policies and scoped storage.
- */
-object PermissionPolicy {
+data class SpaceCheckResult(
+    val isSufficient: Boolean,
+    val requiredTempBytes: Long,
+    val requiredFinalBytes: Long,
+    val availableTempBytes: Long,
+    val availableDestinationBytes: Long,
+    val deficitBytes: Long
+)
 
-    /**
-     * Notification permission decision:
-     * - Required only on Android 13 (API 33) and above when triggering the first download.
-     * - Returns empty list on Android 12 and below (granted automatically at install).
-     */
-    fun getNotificationPermissions(sdkInt: Int = Build.VERSION.SDK_INT): List<String> {
-        return if (sdkInt >= Build.VERSION_CODES.TIRAMISU) {
-            listOf(Manifest.permission.POST_NOTIFICATIONS)
-        } else {
-            emptyList()
+object StorageSpaceChecker {
+
+    const val TEMP_BUFFER_MULTIPLIER = 1.10
+
+    fun calculateRequiredTempBytes(
+        estimatedSizeBytes: Long,
+        hasSeparateStreams: Boolean
+    ): Long {
+        if (estimatedSizeBytes <= 0) return 0L
+        val baseBuffer = (estimatedSizeBytes * TEMP_BUFFER_MULTIPLIER).toLong()
+        val mergeOverhead = if (hasSeparateStreams) estimatedSizeBytes else 0L
+        return baseBuffer + mergeOverhead
+    }
+
+    fun getAvailableBytes(path: String): Long {
+        return try {
+            val file = File(path)
+            val targetFile = if (file.exists()) file else file.parentFile ?: file
+            val stat = StatFs(targetFile.absolutePath)
+            stat.availableBlocksLong * stat.blockSizeLong
+        } catch (e: Exception) {
+            0L
         }
     }
 
-    /**
-     * Storage write permission decision:
-     * - WRITE_EXTERNAL_STORAGE (maxSdkVersion=28) is ONLY required on Android 9 and below (API <= 28)
-     *   when writing to the public external Downloads directory.
-     * - On Android 10+ (API >= 29), Scoped Storage (MediaStore / SAF) is used and runtime permission is NOT needed.
-     */
-    fun getStorageWritePermissions(
-        isPublicDirectory: Boolean,
-        sdkInt: Int = Build.VERSION.SDK_INT
-    ): List<String> {
-        return if (isPublicDirectory && sdkInt <= Build.VERSION_CODES.P) {
-            listOf(Manifest.permission.WRITE_EXTERNAL_STORAGE)
-        } else {
-            emptyList()
+    fun getTotalBytes(path: String): Long {
+        return try {
+            val file = File(path)
+            val targetFile = if (file.exists()) file else file.parentFile ?: file
+            val stat = StatFs(targetFile.absolutePath)
+            stat.blockCountLong * stat.blockSizeLong
+        } catch (e: Exception) {
+            0L
         }
     }
 
-    /**
-     * External media reading decision for the Library:
-     * - ONLY required if the user explicitly opts to browse/play files outside the app's dedicated storage.
-     * - Android 13+ (API >= 33): requires READ_MEDIA_VIDEO and READ_MEDIA_AUDIO granular permissions.
-     * - Android 12 and below (API <= 32): requires READ_EXTERNAL_STORAGE.
-     * - Downloading directly to MediaStore or app-scoped SAF folders does NOT require this permission.
-     */
-    fun getExternalMediaReadPermissions(
-        accessExternalLibraryFiles: Boolean,
-        sdkInt: Int = Build.VERSION.SDK_INT
-    ): List<String> {
-        if (!accessExternalLibraryFiles) {
-            return emptyList()
-        }
-
-        return if (sdkInt >= Build.VERSION_CODES.TIRAMISU) {
-            listOf(
-                Manifest.permission.READ_MEDIA_VIDEO,
-                Manifest.permission.READ_MEDIA_AUDIO
-            )
-        } else {
-            listOf(Manifest.permission.READ_EXTERNAL_STORAGE)
-        }
+    fun getFreeSpaceRatio(path: String): Float {
+        val total = getTotalBytes(path)
+        if (total <= 0L) return 0f
+        val free = getAvailableBytes(path)
+        return (free.toFloat() / total.toFloat()).coerceIn(0f, 1f)
     }
 
-    /**
-     * Verifies that forbidden restricted permissions are never requested.
-     */
-    const val FORBIDDEN_MANAGE_EXTERNAL_STORAGE = "android.permission.MANAGE_EXTERNAL_STORAGE"
-    const val FORBIDDEN_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS = "android.settings.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"
+    fun checkSpace(
+        context: Context,
+        estimatedSizeBytes: Long,
+        hasSeparateStreams: Boolean,
+        destinationPath: String? = null
+    ): SpaceCheckResult {
+        val requiredTemp = calculateRequiredTempBytes(estimatedSizeBytes, hasSeparateStreams)
+        val requiredFinal = estimatedSizeBytes
+
+        val tempDir = context.getExternalFilesDir("downloads") ?: context.filesDir
+        val availableTemp = getAvailableBytes(tempDir.absolutePath)
+
+        val finalDir = destinationPath ?: Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)?.absolutePath ?: tempDir.absolutePath
+        val availableDestination = getAvailableBytes(finalDir)
+
+        val tempDeficit = max(0L, requiredTemp - availableTemp)
+        val destDeficit = max(0L, requiredFinal - availableDestination)
+        val totalDeficit = max(tempDeficit, destDeficit)
+
+        val isSufficient = (availableTemp >= requiredTemp) && (availableDestination >= requiredFinal)
+
+        return SpaceCheckResult(
+            isSufficient = isSufficient,
+            requiredTempBytes = requiredTemp,
+            requiredFinalBytes = requiredFinal,
+            availableTempBytes = availableTemp,
+            availableDestinationBytes = availableDestination,
+            deficitBytes = totalDeficit
+        )
+    }
+
+    fun formatBytes(bytes: Long): String {
+        if (bytes <= 0) return "0 B"
+        val kb = 1024.0
+        val mb = kb * 1024.0
+        val gb = mb * 1024.0
+
+        return when {
+            bytes >= gb -> String.format(java.util.Locale.US, "%.2f GB", bytes / gb)
+            bytes >= mb -> String.format(java.util.Locale.US, "%.1f MB", bytes / mb)
+            bytes >= kb -> String.format(java.util.Locale.US, "%.1f KB", bytes / kb)
+            else -> "$bytes B"
+        }
+    }
 }`
   },
   {
-    path: 'core/src/main/java/com/vidget/core/permission/PermissionManager.kt',
-    name: 'PermissionManager.kt',
+    path: 'core/src/main/java/com/vidget/core/storage/FileMover.kt',
+    name: 'FileMover.kt',
     module: 'core',
     language: 'kotlin',
-    description: 'مدير تتبع حالات الأذونات كـ StateFlow وتوجيه المستخدم للإعدادات عند الرفض الدائم وتحسين البطارية',
-    content: `package com.vidget.core.permission
+    description: 'نقل الملف النهائي بالتدفق مع تقدم منفصل "جارٍ الحفظ" ثم حذف الملف المؤقت بدعم MediaStore و SAF',
+    content: `package com.vidget.core.storage
 
-import android.app.Activity
+import android.content.ContentValues
 import android.content.Context
-import android.content.Intent
-import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
-import android.provider.Settings
-import androidx.core.app.ActivityCompat
-import androidx.core.content.ContextCompat
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import javax.inject.Inject
-import javax.inject.Singleton
+import android.os.Environment
+import android.provider.DocumentsContract
+import android.provider.MediaStore
+import com.vidget.domain.model.DestinationType
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
+import java.io.File
+import java.io.FileInputStream
+import java.io.FileOutputStream
+import java.io.OutputStream
 
-enum class PermissionType {
-    NOTIFICATIONS,
-    LEGACY_STORAGE_WRITE,
-    EXTERNAL_MEDIA_READ
+sealed interface MoveProgress {
+    data class InProgress(val bytesCopied: Long, val totalBytes: Long, val percent: Int) : MoveProgress
+    data class Completed(val destinationUri: Uri?, val finalPath: String?) : MoveProgress
+    data class Error(val throwable: Throwable) : MoveProgress
 }
 
-sealed interface PermissionStatus {
-    data object Granted : PermissionStatus
-    data object NotRequested : PermissionStatus
-    data object DeniedOnce : PermissionStatus
-    data object PermanentlyDenied : PermissionStatus
-}
-
-@Singleton
-class PermissionManager @Inject constructor() {
-
-    private val _notificationStatus = MutableStateFlow<PermissionStatus>(PermissionStatus.NotRequested)
-    val notificationStatus: StateFlow<PermissionStatus> = _notificationStatus.asStateFlow()
-
-    private val _storageWriteStatus = MutableStateFlow<PermissionStatus>(PermissionStatus.NotRequested)
-    val storageWriteStatus: StateFlow<PermissionStatus> = _storageWriteStatus.asStateFlow()
-
-    private val _mediaReadStatus = MutableStateFlow<PermissionStatus>(PermissionStatus.NotRequested)
-    val mediaReadStatus: StateFlow<PermissionStatus> = _mediaReadStatus.asStateFlow()
-
-    private val _silentNotificationNoticeShown = MutableStateFlow(false)
-    val silentNotificationNoticeShown: StateFlow<Boolean> = _silentNotificationNoticeShown.asStateFlow()
-
-    fun checkStatus(context: Context, type: PermissionType): PermissionStatus {
-        val permissions = when (type) {
-            PermissionType.NOTIFICATIONS -> PermissionPolicy.getNotificationPermissions()
-            PermissionType.LEGACY_STORAGE_WRITE -> PermissionPolicy.getStorageWritePermissions(isPublicDirectory = true)
-            PermissionType.EXTERNAL_MEDIA_READ -> PermissionPolicy.getExternalMediaReadPermissions(accessExternalLibraryFiles = true)
-        }
-
-        if (permissions.isEmpty()) {
-            return PermissionStatus.Granted
-        }
-
-        val allGranted = permissions.all { perm ->
-            ContextCompat.checkSelfPermission(context, perm) == PackageManager.PERMISSION_GRANTED
-        }
-
-        return if (allGranted) PermissionStatus.Granted else PermissionStatus.NotRequested
-    }
-
-    fun onPermissionResult(
-        activity: Activity,
-        type: PermissionType,
-        isGranted: Boolean,
-        permissionsRequested: List<String>
-    ) {
-        val newStatus = when {
-            isGranted -> PermissionStatus.Granted
-            permissionsRequested.any { perm ->
-                ActivityCompat.shouldShowRequestPermissionRationale(activity, perm)
-            } -> PermissionStatus.DeniedOnce
-            else -> PermissionStatus.PermanentlyDenied
-        }
-
-        when (type) {
-            PermissionType.NOTIFICATIONS -> _notificationStatus.value = newStatus
-            PermissionType.LEGACY_STORAGE_WRITE -> _storageWriteStatus.value = newStatus
-            PermissionType.EXTERNAL_MEDIA_READ -> _mediaReadStatus.value = newStatus
-        }
-    }
-
-    fun markSilentNotificationNoticeShown() {
-        _silentNotificationNoticeShown.value = true
-    }
-
-    fun openAppSettings(context: Context) {
-        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-            data = Uri.fromParts("package", context.packageName, null)
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK
-        }
-        context.startActivity(intent)
-    }
-
-    fun openBatteryOptimizationSettings(context: Context) {
-        val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK
-        }
-        context.startActivity(intent)
-    }
-}`
-  },
-  {
-    path: 'core/src/test/java/com/vidget/core/permission/PermissionPolicyTest.kt',
-    name: 'PermissionPolicyTest.kt',
-    module: 'core',
-    language: 'kotlin',
-    description: 'اختبارات الوحدة للتحقق من قرارات الأذونات عبر إصدارات Android المختلفة وعدم طلب أي إذن غير لازم',
-    content: `package com.vidget.core.permission
-
-import android.Manifest
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Test
-
-class PermissionPolicyTest {
-
-    @Test
-    fun notifications_required_only_on_android_13_and_above() {
-        assertEquals(
-            listOf(Manifest.permission.POST_NOTIFICATIONS),
-            PermissionPolicy.getNotificationPermissions(sdkInt = 33)
-        )
-        assertEquals(
-            listOf(Manifest.permission.POST_NOTIFICATIONS),
-            PermissionPolicy.getNotificationPermissions(sdkInt = 34)
-        )
-        assertEquals(
-            listOf(Manifest.permission.POST_NOTIFICATIONS),
-            PermissionPolicy.getNotificationPermissions(sdkInt = 35)
-        )
-
-        assertTrue(PermissionPolicy.getNotificationPermissions(sdkInt = 32).isEmpty())
-        assertTrue(PermissionPolicy.getNotificationPermissions(sdkInt = 28).isEmpty())
-        assertTrue(PermissionPolicy.getNotificationPermissions(sdkInt = 24).isEmpty())
-    }
-
-    @Test
-    fun write_storage_required_only_on_android_9_and_below_for_public_directory() {
-        assertEquals(
-            listOf(Manifest.permission.WRITE_EXTERNAL_STORAGE),
-            PermissionPolicy.getStorageWritePermissions(isPublicDirectory = true, sdkInt = 28)
-        )
-        assertEquals(
-            listOf(Manifest.permission.WRITE_EXTERNAL_STORAGE),
-            PermissionPolicy.getStorageWritePermissions(isPublicDirectory = true, sdkInt = 24)
-        )
-
-        assertTrue(
-            PermissionPolicy.getStorageWritePermissions(isPublicDirectory = false, sdkInt = 28).isEmpty()
-        )
-
-        assertTrue(
-            PermissionPolicy.getStorageWritePermissions(isPublicDirectory = true, sdkInt = 29).isEmpty()
-        )
-        assertTrue(
-            PermissionPolicy.getStorageWritePermissions(isPublicDirectory = true, sdkInt = 34).isEmpty()
-        )
-        assertTrue(
-            PermissionPolicy.getStorageWritePermissions(isPublicDirectory = true, sdkInt = 35).isEmpty()
-        )
-    }
-
-    @Test
-    fun read_media_external_library_granularity_by_android_version() {
-        val android13Media = PermissionPolicy.getExternalMediaReadPermissions(
-            accessExternalLibraryFiles = true,
-            sdkInt = 33
-        )
-        assertEquals(
-            listOf(Manifest.permission.READ_MEDIA_VIDEO, Manifest.permission.READ_MEDIA_AUDIO),
-            android13Media
-        )
-
-        val android12Media = PermissionPolicy.getExternalMediaReadPermissions(
-            accessExternalLibraryFiles = true,
-            sdkInt = 32
-        )
-        assertEquals(listOf(Manifest.permission.READ_EXTERNAL_STORAGE), android12Media)
-
-        assertTrue(
-            PermissionPolicy.getExternalMediaReadPermissions(
-                accessExternalLibraryFiles = false,
-                sdkInt = 35
-            ).isEmpty()
-        )
-    }
-
-    @Test
-    fun forbidden_permissions_are_never_included() {
-        val allPermissions = PermissionPolicy.getNotificationPermissions(35) +
-            PermissionPolicy.getStorageWritePermissions(true, 28) +
-            PermissionPolicy.getExternalMediaReadPermissions(true, 35)
-
-        assertFalse(allPermissions.contains(PermissionPolicy.FORBIDDEN_MANAGE_EXTERNAL_STORAGE))
-        assertFalse(allPermissions.contains(PermissionPolicy.FORBIDDEN_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS))
-    }
-}`
-  },
-  {
-    path: 'core/src/main/java/com/vidget/core/service/DataSyncTimeoutHandler.kt',
-    name: 'DataSyncTimeoutHandler.kt',
-    module: 'core',
-    language: 'kotlin',
-    description: 'معالج مهلة 6 ساعات لخدمة dataSync على Android 14/15 عبر onTimeout لحفظ نقاط التوقف وإعادة الجدولة',
-    content: `package com.vidget.core.service
-
-import android.content.Context
-import android.os.Build
-import android.util.Log
-
-class DataSyncTimeoutHandler(
+class FileMover(
     private val context: Context
 ) {
-    fun handleDataSyncTimeout(startId: Int, fgsType: Int) {
-        if (Build.VERSION.SDK_INT >= 35) {
-            Log.w(
-                TAG,
-                "Android 15 DataSync Foreground Service timeout reached (startId: $startId, fgsType: $fgsType). Saving progress and rescheduling..."
-            )
-            rescheduleRemainingDownloads()
-        }
-    }
 
-    private fun rescheduleRemainingDownloads() {
-        Log.i(TAG, "Pending downloads state saved. Rescheduled via background scheduler.")
+    fun moveFile(
+        sourceTempFile: File,
+        targetFilename: String,
+        mimeType: String,
+        destinationType: DestinationType,
+        subfolder: String? = null
+    ): Flow<MoveProgress> = flow {
+        if (!sourceTempFile.exists() || sourceTempFile.length() <= 0L) {
+            emit(MoveProgress.Error(IllegalArgumentException("Source temp file does not exist or is empty")))
+            return@flow
+        }
+
+        val totalBytes = sourceTempFile.length()
+        var destinationUri: Uri? = null
+        var finalPath: String? = null
+
+        try {
+            when (destinationType) {
+                is DestinationType.DownloadsDefault -> {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        val relativePath = if (subfolder.isNullOrBlank()) {
+                            "\${Environment.DIRECTORY_DOWNLOADS}/VidGet"
+                        } else {
+                            "\${Environment.DIRECTORY_DOWNLOADS}/VidGet/$subfolder"
+                        }
+
+                        val values = ContentValues().apply {
+                            put(MediaStore.Downloads.DISPLAY_NAME, targetFilename)
+                            put(MediaStore.Downloads.MIME_TYPE, mimeType)
+                            put(MediaStore.Downloads.RELATIVE_PATH, relativePath)
+                            put(MediaStore.Downloads.IS_PENDING, 1)
+                        }
+
+                        val uri = context.contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                            ?: throw IllegalStateException("Failed to create MediaStore.Downloads record")
+
+                        destinationUri = uri
+                        context.contentResolver.openOutputStream(uri)?.use { out ->
+                            copyStreamWithProgress(sourceTempFile, out, totalBytes) { progress ->
+                                emit(progress)
+                            }
+                        }
+
+                        values.clear()
+                        values.put(MediaStore.Downloads.IS_PENDING, 0)
+                        context.contentResolver.update(uri, values, null, null)
+                    } else {
+                        val downloadDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                        val vidgetDir = File(downloadDir, if (subfolder.isNullOrBlank()) "VidGet" else "VidGet/$subfolder")
+                        vidgetDir.mkdirs()
+                        val destFile = File(vidgetDir, targetFilename)
+                        finalPath = destFile.absolutePath
+
+                        FileOutputStream(destFile).use { out ->
+                            copyStreamWithProgress(sourceTempFile, out, totalBytes) { progress ->
+                                emit(progress)
+                            }
+                        }
+                    }
+                }
+
+                is DestinationType.Movies -> {
+                    val isAudio = mimeType.startsWith("audio/")
+                    val collectionUri = if (isAudio) {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+                        else MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+                    } else {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+                        else MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+                    }
+
+                    val baseDirectory = if (isAudio) Environment.DIRECTORY_MUSIC else Environment.DIRECTORY_MOVIES
+                    val relativePath = if (subfolder.isNullOrBlank()) {
+                        "$baseDirectory/VidGet"
+                    } else {
+                        "$baseDirectory/VidGet/$subfolder"
+                    }
+
+                    val values = ContentValues().apply {
+                        put(MediaStore.MediaColumns.DISPLAY_NAME, targetFilename)
+                        put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                            put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
+                            put(MediaStore.MediaColumns.IS_PENDING, 1)
+                        }
+                    }
+
+                    val uri = context.contentResolver.insert(collectionUri, values)
+                        ?: throw IllegalStateException("Failed to create MediaStore record")
+
+                    destinationUri = uri
+                    context.contentResolver.openOutputStream(uri)?.use { out ->
+                        copyStreamWithProgress(sourceTempFile, out, totalBytes) { progress ->
+                            emit(progress)
+                        }
+                    }
+
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        values.clear()
+                        values.put(MediaStore.MediaColumns.IS_PENDING, 0)
+                        context.contentResolver.update(uri, values, null, null)
+                    }
+                }
+
+                is DestinationType.CustomFolder, is DestinationType.SdCard -> {
+                    val uriString = if (destinationType is DestinationType.CustomFolder) {
+                        destinationType.uriString
+                    } else {
+                        (destinationType as DestinationType.SdCard).uriString
+                    }
+
+                    val treeUri = Uri.parse(uriString)
+                    val parentDocUri = DocumentsContract.buildDocumentUriUsingTree(
+                        treeUri,
+                        DocumentsContract.getTreeDocumentId(treeUri)
+                    )
+
+                    val targetDocUri = DocumentsContract.createDocument(
+                        context.contentResolver,
+                        parentDocUri,
+                        mimeType,
+                        targetFilename
+                    ) ?: throw IllegalStateException("Failed to create SAF document at destination")
+
+                    destinationUri = targetDocUri
+                    context.contentResolver.openOutputStream(targetDocUri)?.use { out ->
+                        copyStreamWithProgress(sourceTempFile, out, totalBytes) { progress ->
+                            emit(progress)
+                        }
+                    }
+                }
+            }
+
+            sourceTempFile.delete()
+            emit(MoveProgress.Completed(destinationUri, finalPath))
+        } catch (t: Throwable) {
+            emit(MoveProgress.Error(t))
+        }
+    }.flowOn(Dispatchers.IO)
+
+    private inline fun copyStreamWithProgress(
+        source: File,
+        out: OutputStream,
+        totalBytes: Long,
+        onProgress: (MoveProgress) -> Unit
+    ) {
+        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+        var bytesCopied = 0L
+
+        FileInputStream(source).use { input ->
+            var bytes = input.read(buffer)
+            while (bytes >= 0) {
+                out.write(buffer, 0, bytes)
+                bytesCopied += bytes
+                val percent = if (totalBytes > 0) ((bytesCopied * 100) / totalBytes).toInt() else 0
+                onProgress(MoveProgress.InProgress(bytesCopied, totalBytes, percent))
+                bytes = input.read(buffer)
+            }
+        }
+        out.flush()
     }
 
     companion object {
-        private const val TAG = "DataSyncTimeoutHandler"
+        private const val DEFAULT_BUFFER_SIZE = 64 * 1024
     }
 }`
   },
   {
-    path: 'ui/src/main/java/com/vidget/ui/components/PermissionRationaleDialog.kt',
-    name: 'PermissionRationaleDialog.kt',
+    path: 'core/src/main/java/com/vidget/core/naming/FileNamer.kt',
+    name: 'FileNamer.kt',
+    module: 'core',
+    language: 'kotlin',
+    description: 'تنظيف الاسم (استبدال الرموز غير المدعومة، إزالة المسافات والنقاط الأخيرة، حد 120 حرفاً آمناً، وأسماء ويندوز المحجوزة)',
+    content: `package com.vidget.core.naming
+
+import com.vidget.domain.model.SubfolderOrganization
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
+object FileNamer {
+
+    const val MAX_BASE_NAME_LENGTH = 120
+    const val PART_EXTENSION = ".part"
+
+    private val ILLEGAL_CHAR_REGEX = Regex("[\\\\/:*?\"<>|\\u0000-\\u001F\\u007F]")
+
+    private val RESERVED_NAMES = setOf(
+        "CON", "PRN", "AUX", "NUL",
+        "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"
+    )
+
+    fun sanitizeBaseName(rawName: String): String {
+        if (rawName.isBlank()) return "download"
+
+        var cleaned = rawName.replace(ILLEGAL_CHAR_REGEX, "_")
+        cleaned = cleaned.trimEnd { it == '.' || it.isWhitespace() }
+
+        if (cleaned.isBlank()) cleaned = "download"
+
+        cleaned = truncateSafely(cleaned, MAX_BASE_NAME_LENGTH)
+        cleaned = cleaned.trimEnd { it == '.' || it.isWhitespace() }
+        if (cleaned.isBlank()) cleaned = "download"
+
+        val upper = cleaned.uppercase(Locale.US)
+        if (upper in RESERVED_NAMES) {
+            cleaned = "_$cleaned"
+        }
+
+        return cleaned
+    }
+
+    fun truncateSafely(input: String, maxCodePoints: Int): String {
+        var codePointsCount = 0
+        var byteIndex = 0
+
+        while (byteIndex < input.length && codePointsCount < maxCodePoints) {
+            val codePoint = input.codePointAt(byteIndex)
+            byteIndex += Character.charCount(codePoint)
+            codePointsCount++
+        }
+
+        return input.substring(0, byteIndex)
+    }
+
+    fun generateTempFileName(baseName: String, ext: String): String {
+        val sanitizedBase = sanitizeBaseName(baseName)
+        val cleanExt = ext.removePrefix(".")
+        return "$sanitizedBase.$cleanExt$PART_EXTENSION"
+    }
+
+    fun generateFinalFileName(baseName: String, ext: String): String {
+        val sanitizedBase = sanitizeBaseName(baseName)
+        val cleanExt = ext.removePrefix(".")
+        return "$sanitizedBase.$cleanExt"
+    }
+
+    fun generateSubtitleFileName(baseName: String, languageCode: String): String {
+        val sanitizedBase = sanitizeBaseName(baseName)
+        val cleanLang = languageCode.trim().lowercase(Locale.US)
+        return "$sanitizedBase.$cleanLang.srt"
+    }
+
+    fun resolveSubfolder(
+        organization: SubfolderOrganization,
+        platform: String,
+        date: Date = Date()
+    ): String? {
+        return when (organization) {
+            SubfolderOrganization.NONE -> null
+            SubfolderOrganization.PLATFORM -> sanitizeBaseName(platform)
+            SubfolderOrganization.DATE -> SimpleDateFormat("yyyy-MM", Locale.US).format(date)
+        }
+    }
+}`
+  },
+  {
+    path: 'core/src/main/java/com/vidget/core/naming/TemplateParser.kt',
+    name: 'TemplateParser.kt',
+    module: 'core',
+    language: 'kotlin',
+    description: 'محلل قوالب التسمية ومعاينة حيّة بالمتغيرات المسموحة فقط ({title}, {quality}, {ext}, {platform}, {date}, {id})',
+    content: `package com.vidget.core.naming
+
+import com.vidget.domain.model.NamingTemplateConfig
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
+data class VideoTemplateContext(
+    val title: String,
+    val quality: String,
+    val ext: String,
+    val platform: String,
+    val date: String = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date()),
+    val id: String
+)
+
+object TemplateParser {
+
+    val SAMPLE_PREVIEW_CONTEXT = VideoTemplateContext(
+        title = "دورة احتراف أندرويد الحديثة",
+        quality = "1080p",
+        ext = "mp4",
+        platform = "YouTube",
+        date = "2026-10-12",
+        id = "vid_893274"
+    )
+
+    fun validateTemplate(template: String): Boolean {
+        if (template.isBlank()) return false
+        val tokenRegex = Regex("\\\\{[^}]+\\\\}")
+        val tokensFound = tokenRegex.findAll(template).map { it.value }.toSet()
+        return tokensFound.all { it in NamingTemplateConfig.ALLOWED_PLACEHOLDERS }
+    }
+
+    fun parse(template: String, context: VideoTemplateContext): String {
+        val safeTemplate = if (validateTemplate(template)) template else NamingTemplateConfig.DEFAULT_TEMPLATE
+
+        var result = safeTemplate
+            .replace("{title}", context.title)
+            .replace("{quality}", context.quality)
+            .replace("{ext}", context.ext.removePrefix("."))
+            .replace("{platform}", context.platform)
+            .replace("{date}", context.date)
+            .replace("{id}", context.id)
+
+        val cleanExt = context.ext.removePrefix(".")
+        if (!result.endsWith(".$cleanExt")) {
+            result = "$result.$cleanExt"
+        }
+
+        return result
+    }
+
+    fun preview(template: String): String {
+        return parse(template, SAMPLE_PREVIEW_CONTEXT)
+    }
+}`
+  },
+  {
+    path: 'core/src/main/java/com/vidget/core/naming/ConflictResolver.kt',
+    name: 'ConflictResolver.kt',
+    module: 'core',
+    language: 'kotlin',
+    description: 'معالجة تعارض أسماء الملفات (إعادة تسمية تلقائية بإضافة (1) و(2)، استبدال، تخطي، اسأل كل مرة)',
+    content: `package com.vidget.core.naming
+
+import com.vidget.domain.model.NameConflictResolution
+
+sealed interface ConflictResolutionResult {
+    data class ProceedWithFilename(val filename: String, val shouldOverwrite: Boolean = false) : ConflictResolutionResult
+    data object SkipDownload : ConflictResolutionResult
+    data object RequiresUserPrompt : ConflictResolutionResult
+}
+
+object ConflictResolver {
+
+    fun resolveUniqueName(
+        sanitizedBase: String,
+        cleanExt: String,
+        fileExistsCheck: (String) -> Boolean
+    ): String {
+        val initialName = "$sanitizedBase.$cleanExt"
+        if (!fileExistsCheck(initialName)) {
+            return initialName
+        }
+
+        var counter = 1
+        while (true) {
+            val candidate = "$sanitizedBase ($counter).$cleanExt"
+            if (!fileExistsCheck(candidate)) {
+                return candidate
+            }
+            counter++
+        }
+    }
+
+    fun handleConflict(
+        sanitizedBase: String,
+        cleanExt: String,
+        strategy: NameConflictResolution,
+        fileExistsCheck: (String) -> Boolean
+    ): ConflictResolutionResult {
+        val initialName = "$sanitizedBase.$cleanExt"
+        if (!fileExistsCheck(initialName)) {
+            return ConflictResolutionResult.ProceedWithFilename(initialName)
+        }
+
+        return when (strategy) {
+            NameConflictResolution.AUTO_RENAME -> {
+                val unique = resolveUniqueName(sanitizedBase, cleanExt, fileExistsCheck)
+                ConflictResolutionResult.ProceedWithFilename(unique)
+            }
+            NameConflictResolution.OVERWRITE -> {
+                ConflictResolutionResult.ProceedWithFilename(initialName, shouldOverwrite = true)
+            }
+            NameConflictResolution.SKIP -> {
+                ConflictResolutionResult.SkipDownload
+            }
+            NameConflictResolution.ASK_EVERY_TIME -> {
+                ConflictResolutionResult.RequiresUserPrompt
+            }
+        }
+    }
+}`
+  },
+  {
+    path: 'domain/src/main/java/com/vidget/domain/model/DestinationType.kt',
+    name: 'DestinationType.kt',
+    module: 'domain',
+    language: 'kotlin',
+    description: 'أنواع الوجهات الأربعة (DownloadsDefault, Movies, CustomFolder, SdCard)',
+    content: `package com.vidget.domain.model
+
+import kotlinx.serialization.Serializable
+
+@Serializable
+sealed interface DestinationType {
+
+    @Serializable
+    data object DownloadsDefault : DestinationType
+
+    @Serializable
+    data object Movies : DestinationType
+
+    @Serializable
+    data class CustomFolder(
+        val uriString: String,
+        val displayName: String
+    ) : DestinationType
+
+    @Serializable
+    data class SdCard(
+        val uriString: String,
+        val displayName: String
+    ) : DestinationType
+}`
+  },
+  {
+    path: 'ui/src/main/java/com/vidget/ui/components/DestinationPickerSheet.kt',
+    name: 'DestinationPickerSheet.kt',
     module: 'ui',
     language: 'kotlin',
-    description: 'مكون الحوار التوضيحي (Dialog) مع أيقونة وعنوان وشرح سطرين وزري متابعة/ليس الآن أو فتح الإعدادات',
+    description: 'لوحة BottomSheet لاختيار الوجهة مع 4 بطاقات وشريط نسبة المساحة الحرة وزر تغيير',
     content: `package com.vidget.ui.components
 
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
@@ -347,431 +596,377 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.vidget.core.permission.PermissionStatus
-import com.vidget.core.permission.PermissionType
+import com.vidget.domain.model.DestinationType
 import com.vidget.ui.R
 import com.vidget.ui.theme.MinTouchTargetSize
+import com.vidget.ui.theme.VidGetTheme
 
-data class PermissionDialogStrings(
+data class DestinationOptionItem(
+    val type: DestinationType,
     val titleResId: Int,
-    val descriptionResId: Int,
-    val icon: ImageVector
+    val readablePath: String,
+    val icon: ImageVector,
+    val freeSpaceFormatted: String,
+    val freeSpaceRatio: Float,
+    val isCustomOrSdCard: Boolean = false,
+    val hintResId: Int? = null
 )
 
-fun resolveDialogContent(
-    type: PermissionType,
-    status: PermissionStatus
-): PermissionDialogStrings {
-    return when (type) {
-        PermissionType.NOTIFICATIONS -> {
-            when (status) {
-                PermissionStatus.DeniedOnce -> PermissionDialogStrings(
-                    titleResId = R.string.perm_notif_rationale_title,
-                    descriptionResId = R.string.perm_notif_rationale_desc,
-                    icon = Icons.Rounded.NotificationsActive
-                )
-                PermissionStatus.PermanentlyDenied -> PermissionDialogStrings(
-                    titleResId = R.string.perm_notif_settings_title,
-                    descriptionResId = R.string.perm_notif_settings_desc,
-                    icon = Icons.Rounded.Settings
-                )
-                else -> PermissionDialogStrings(
-                    titleResId = R.string.perm_notif_title,
-                    descriptionResId = R.string.perm_notif_desc,
-                    icon = Icons.Rounded.NotificationsActive
-                )
-            }
-        }
-        PermissionType.LEGACY_STORAGE_WRITE -> {
-            when (status) {
-                PermissionStatus.DeniedOnce -> PermissionDialogStrings(
-                    titleResId = R.string.perm_storage_write_rationale_title,
-                    descriptionResId = R.string.perm_storage_write_rationale_desc,
-                    icon = Icons.Rounded.SdCard
-                )
-                PermissionStatus.PermanentlyDenied -> PermissionDialogStrings(
-                    titleResId = R.string.perm_storage_write_settings_title,
-                    descriptionResId = R.string.perm_storage_write_settings_desc,
-                    icon = Icons.Rounded.Settings
-                )
-                else -> PermissionDialogStrings(
-                    titleResId = R.string.perm_storage_write_title,
-                    descriptionResId = R.string.perm_storage_write_desc,
-                    icon = Icons.Rounded.SdCard
-                )
-            }
-        }
-        PermissionType.EXTERNAL_MEDIA_READ -> {
-            when (status) {
-                PermissionStatus.DeniedOnce -> PermissionDialogStrings(
-                    titleResId = R.string.perm_media_read_rationale_title,
-                    descriptionResId = R.string.perm_media_read_rationale_desc,
-                    icon = Icons.Rounded.PermMedia
-                )
-                PermissionStatus.PermanentlyDenied -> PermissionDialogStrings(
-                    titleResId = R.string.perm_media_read_settings_title,
-                    descriptionResId = R.string.perm_media_read_settings_desc,
-                    icon = Icons.Rounded.Settings
-                )
-                else -> PermissionDialogStrings(
-                    titleResId = R.string.perm_media_read_title,
-                    descriptionResId = R.string.perm_media_read_desc,
-                    icon = Icons.Rounded.PermMedia
-                )
-            }
-        }
-    }
-}
-
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PermissionRationaleDialog(
-    type: PermissionType,
-    status: PermissionStatus,
-    onConfirm: () -> Unit,
-    onDismiss: () -> Unit,
+fun DestinationPickerSheet(
+    selectedType: DestinationType,
+    options: List<DestinationOptionItem>,
+    onSelectDestination: (DestinationType) -> Unit,
+    onChangeCustomFolderClick: () -> Unit,
+    onChangeSdCardClick: () -> Unit,
+    onDismissRequest: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val content = resolveDialogContent(type, status)
-    val isPermanent = status is PermissionStatus.PermanentlyDenied
+    val spacing = VidGetTheme.spacing
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        shape = MaterialTheme.shapes.large,
+    ModalBottomSheet(
+        onDismissRequest = onDismissRequest,
+        shape = MaterialTheme.shapes.extraLarge,
         containerColor = MaterialTheme.colorScheme.surface,
-        icon = {
-            Icon(
-                imageVector = content.icon,
-                contentDescription = null,
-                modifier = Modifier.size(36.dp),
-                tint = if (isPermanent) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
-            )
-        },
-        title = {
-            Text(
-                text = stringResource(content.titleResId),
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-                textAlign = TextAlign.Center
-            )
-        },
-        text = {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text(
-                    text = stringResource(content.descriptionResId),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
-                    textAlign = TextAlign.Center
-                )
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = onConfirm,
-                shape = MaterialTheme.shapes.small,
-                modifier = Modifier.height(MinTouchTargetSize)
-            ) {
-                Text(
-                    text = if (isPermanent) {
-                        stringResource(R.string.action_open_settings)
-                    } else {
-                        stringResource(R.string.action_continue)
-                    },
-                    style = MaterialTheme.typography.labelLarge
-                )
-            }
-        },
-        dismissButton = {
-            TextButton(
-                onClick = onDismiss,
-                shape = MaterialTheme.shapes.small,
-                modifier = Modifier.height(MinTouchTargetSize)
-            ) {
-                Text(
-                    text = stringResource(R.string.action_not_now),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                )
-            }
-        },
         modifier = modifier
-    )
-}`
-  },
-  {
-    path: 'ui/src/main/res/values/strings.xml',
-    name: 'strings.xml (en)',
-    module: 'ui',
-    language: 'xml',
-    description: 'ملف النصوص الإنجليزية شاملاً نصوص الأذونات وشرح السطرين وإشعارات التراجع',
-    content: `<!-- Permissions Dialog Strings -->
-<string name="action_continue">Continue</string>
-<string name="action_not_now">Not Now</string>
-<string name="action_open_settings">Open Settings</string>
-<string name="action_battery_optimization">Ignore Battery Optimizations</string>
-<string name="action_battery_optimization_desc">Ensures uninterrupted long background downloads.</string>
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = spacing.medium)
+                .padding(bottom = spacing.large)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column {
+                    Text(
+                        text = stringResource(R.string.dest_picker_title),
+                        style = MaterialTheme.typography.titleLarge,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = stringResource(R.string.dest_picker_desc),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                    )
+                }
+                IconButton(onClick = onDismissRequest) {
+                    Icon(
+                        imageVector = Icons.Rounded.Close,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                    )
+                }
+            }
 
-<string name="perm_notif_title">Allow Download Notifications</string>
-<string name="perm_notif_desc">Notification permission is required to track download progress and alert you upon completion.</string>
-<string name="perm_notif_rationale_title">Download Notifications are Essential</string>
-<string name="perm_notif_rationale_desc">Notifications allow pausing, resuming, and tracking downloads in the background without keeping the app open.</string>
-<string name="perm_notif_settings_title">Enable Notifications in Settings</string>
-<string name="perm_notif_settings_desc">Notifications were permanently declined. Please enable them in app settings to monitor downloads.</string>
-<string name="perm_notif_silent_notice">Downloads will continue in the background without progress notifications.</string>
+            Spacer(modifier = Modifier.height(spacing.medium))
 
-<string name="perm_storage_write_title">Storage Permission for Downloads</string>
-<string name="perm_storage_write_desc">Writing files to the public Downloads folder on this Android version requires storage access.</string>
-<string name="perm_storage_write_rationale_title">Why Storage Access is Required</string>
-<string name="perm_storage_write_rationale_desc">On Android 9 and older, storage permission is mandatory to store files in the public device gallery.</string>
-<string name="perm_storage_write_settings_title">Grant Storage in Settings</string>
-<string name="perm_storage_write_settings_desc">Storage permission was permanently denied. Please enable it in app settings to save to public folders.</string>
-
-<string name="perm_media_read_title">Browse External Media in Library</string>
-<string name="perm_media_read_desc">Media permission is required to display and manage videos and audio stored outside the app folder.</string>
-<string name="perm_media_read_rationale_title">External Media Access</string>
-<string name="perm_media_read_rationale_desc">This permission is used solely to discover and play your local device video files within the library.</string>
-<string name="perm_media_read_settings_title">Grant Media Access in Settings</string>
-<string name="perm_media_read_settings_desc">Media permission was permanently declined. Please enable it in app settings to view external media.</string>`
-  },
-  {
-    path: 'ui/src/main/res/values-ar/strings.xml',
-    name: 'strings.xml (ar)',
-    module: 'ui',
-    language: 'xml',
-    description: 'ملف النصوص العربية المترجمة بدقة وفق القواعد الصارمة لمنع النصوص الصلبة',
-    content: `<!-- نصوص حوارات الأذونات باللغة العربية -->
-<string name="action_continue">متابعة</string>
-<string name="action_not_now">ليس الآن</string>
-<string name="action_open_settings">فتح الإعدادات</string>
-<string name="action_battery_optimization">تجاهل تحسين البطارية</string>
-<string name="action_battery_optimization_desc">لضمان استمرار التحميلات الطويلة في الخلفية دون توقف.</string>
-
-<string name="perm_notif_title">السماح بإشعارات التنزيل</string>
-<string name="perm_notif_desc">نحتاج إذن الإشعارات لإظهار تقدم التنزيل وإعلامك فور اكتمال الملفات.</string>
-<string name="perm_notif_rationale_title">أهمية إشعارات التنزيل</string>
-<string name="perm_notif_rationale_desc">تتيح لك الإشعارات متابعة سرعة التحميل وإيقافه مؤقتاً ومعرفة وقت الانتهاء دون إبقاء التطبيق مفتوحاً.</string>
-<string name="perm_notif_settings_title">تفعيل الإشعارات من الإعدادات</string>
-<string name="perm_notif_settings_desc">تم تعطيل الإشعارات نهائياً. يرجى تفعيلها من إعدادات التطبيق لتتمكن من متابعة التحميلات.</string>
-<string name="perm_notif_silent_notice">سيستمر التحميل بالخلفية بدون إشعارات تقدم.</string>
-
-<string name="perm_storage_write_title">إذن حفظ التنزيلات العامة</string>
-<string name="perm_storage_write_desc">يتطلب حفظ الملفات في مجلد التنزيلات العام على هذا الإصدار من النظام إذن التخزين.</string>
-<string name="perm_storage_write_rationale_title">لماذا نحتاج إذن التخزين</string>
-<string name="perm_storage_write_rationale_desc">في إصدارات أندرويد 9 وأقدم، إذن التخزين إلزامي لتتمكن من حفظ مقاطع الفيديو في معرض الجهاز العام.</string>
-<string name="perm_storage_write_settings_title">منح إذن التخزين من الإعدادات</string>
-<string name="perm_storage_write_settings_desc">تم رفض إذن التخزين بشكل دائم. يرجى منحه من إعدادات التطبيق لتتمكن من الحفظ في المجلد العام.</string>
-
-<string name="perm_media_read_title">عرض الفيديوهات الخارجية بالمكتبة</string>
-<string name="perm_media_read_desc">لعرض وتشغيل الفيديوهات المخزنة خارج التطبيق، يلزم السماح بالوصول لوسائط الجهاز.</string>
-<string name="perm_media_read_rationale_title">الوصول إلى وسائط المكتبة</string>
-<string name="perm_media_read_rationale_desc">يُستخدم هذا الإذن حصرياً لعرض مقاطع الفيديو والصوتيات الموجودة في ذاكرة هاتفك داخل المكتبة.</string>
-<string name="perm_media_read_settings_title">منح إذن الوسائط من الإعدادات</string>
-<string name="perm_media_read_settings_desc">تم رفض إذن الوسائط بشكل دائم. يرجى تفعيله من الإعدادات لتصفح الملفات الخارجية في المكتبة.</string>`
-  },
-  {
-    path: 'app/src/main/AndroidManifest.xml',
-    name: 'AndroidManifest.xml',
-    module: 'app',
-    language: 'xml',
-    description: 'مانيفست التطبيق مع تصاريح POST_NOTIFICATIONS و FOREGROUND_SERVICE_DATA_SYNC وتحديد maxSdkVersion=28',
-    content: `<?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
-
-    <!-- Network Permissions -->
-    <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-
-    <!-- Storage and Media Permissions -->
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
-    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
-    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
-
-    <!-- Background & Foreground Execution -->
-    <uses-permission android:name="android.permission.WAKE_LOCK" />
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
-
-    <application
-        android:name=".VidGetApp"
-        android:allowBackup="true"
-        android:icon="@android:drawable/sym_def_app_icon"
-        android:label="@string/app_name"
-        android:roundIcon="@android:drawable/sym_def_app_icon"
-        android:supportsRtl="true"
-        android:theme="@style/Theme.VidGet">
-
-        <activity
-            android:name=".MainActivity"
-            android:exported="true"
-            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
-            android:theme="@style/Theme.App.Starting">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
-
-    </application>
-
-</manifest>`
-  },
-  {
-    path: 'app/src/main/java/com/vidget/app/MainActivity.kt',
-    name: 'MainActivity.kt',
-    module: 'app',
-    language: 'kotlin',
-    description: 'النشاط الرئيسي مدمج مع PermissionManager وإعدادات البطارية و SplashScreen',
-    content: `package com.vidget.app
-
-import android.os.Bundle
-import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
-import androidx.activity.viewModels
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.*
-import androidx.compose.runtime.getValue
-import androidx.compose.ui.Modifier
-import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.vidget.ui.navigation.AppNavGraph
-import com.vidget.ui.theme.VidGetTheme
-import dagger.hilt.android.AndroidEntryPoint
-import javax.inject.Inject
-
-@AndroidEntryPoint
-class MainActivity : ComponentActivity() {
-    private val splashViewModel: SplashViewModel by viewModels()
-    private val mainViewModel: MainViewModel by viewModels()
-
-    @Inject
-    lateinit var permissionManager: com.vidget.core.permission.PermissionManager
-
-    override fun onCreate(savedInstanceState: Bundle?) {
-        val splashScreen = installSplashScreen()
-        super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
-
-        splashScreen.setKeepOnScreenCondition { splashViewModel.uiState.value is SplashUiState.Loading }
-
-        setContent {
-            val themeMode by mainViewModel.themeMode.collectAsStateWithLifecycle()
-            val dynamicColor by mainViewModel.dynamicColor.collectAsStateWithLifecycle()
-            val splashState by splashViewModel.uiState.collectAsStateWithLifecycle()
-
-            VidGetTheme(themeMode = themeMode, dynamicColor = dynamicColor) {
-                Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                    when (val state = splashState) {
-                        is SplashUiState.Loading -> Box(modifier = Modifier.fillMaxSize())
-                        is SplashUiState.Success -> {
-                            AppNavGraph(
-                                startDestination = state.startDestination,
-                                onOnboardingFinished = splashViewModel::completeOnboarding,
-                                onOpenBatteryOptimization = {
-                                    permissionManager.openBatteryOptimizationSettings(this@MainActivity)
-                                },
-                                activeDownloadsCount = 0
-                            )
-                        }
+            LazyColumn(
+                verticalArrangement = Arrangement.spacedBy(spacing.small)
+            ) {
+                items(options.size) { index ->
+                    val option = options[index]
+                    val isSelected = when {
+                        option.type is DestinationType.DownloadsDefault && selectedType is DestinationType.DownloadsDefault -> true
+                        option.type is DestinationType.Movies && selectedType is DestinationType.Movies -> true
+                        option.type is DestinationType.CustomFolder && selectedType is DestinationType.CustomFolder -> true
+                        option.type is DestinationType.SdCard && selectedType is DestinationType.SdCard -> true
+                        else -> false
                     }
+
+                    DestinationCard(
+                        option = option,
+                        isSelected = isSelected,
+                        onCardClick = { onSelectDestination(option.type) },
+                        onChangeClick = {
+                            if (option.type is DestinationType.CustomFolder) onChangeCustomFolderClick()
+                            else if (option.type is DestinationType.SdCard) onChangeSdCardClick()
+                        }
+                    )
                 }
             }
         }
     }
-}`
-  },
-  {
-    path: 'ui/src/main/java/com/vidget/ui/navigation/Routes.kt',
-    name: 'Routes.kt',
-    module: 'ui',
-    language: 'kotlin',
-    description: 'المسارات الآمنة لنظام Navigation Compose',
-    content: `package com.vidget.ui.navigation
-
-import androidx.annotation.StringRes
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.*
-import androidx.compose.ui.graphics.vector.ImageVector
-import com.vidget.ui.R
-import kotlinx.serialization.Serializable
-
-sealed interface Route {
-    @Serializable data object Onboarding : Route
-    @Serializable data object Home : Route
-    @Serializable data object Downloads : Route
-    @Serializable data object Library : Route
-    @Serializable data object Settings : Route
-    @Serializable data class Player(val videoUri: String? = null) : Route
-    @Serializable data object LanguageSettings : Route
-    @Serializable data object AboutScreen : Route
 }
 
-enum class BottomNavDestination(val route: Route, @StringRes val labelResId: Int, val icon: ImageVector) {
-    HOME(Route.Home, R.string.nav_home, Icons.Rounded.Home),
-    DOWNLOADS(Route.Downloads, R.string.nav_downloads, Icons.Rounded.Download),
-    LIBRARY(Route.Library, R.string.nav_library, Icons.Rounded.VideoLibrary),
-    SETTINGS(Route.Settings, R.string.nav_settings, Icons.Rounded.Settings)
+@Composable
+private fun DestinationCard(
+    option: DestinationOptionItem,
+    isSelected: Boolean,
+    onCardClick: () -> Unit,
+    onChangeClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val spacing = VidGetTheme.spacing
+    val borderColor = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
+    val containerColor = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.08f) else MaterialTheme.colorScheme.surface
+
+    Card(
+        shape = MaterialTheme.shapes.medium,
+        colors = CardDefaults.cardColors(containerColor = containerColor),
+        modifier = modifier
+            .fillMaxWidth()
+            .border(width = if (isSelected) 1.5.dp else 1.dp, color = borderColor, shape = MaterialTheme.shapes.medium)
+            .clickable(onClick = onCardClick)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(spacing.medium)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Surface(
+                    shape = MaterialTheme.shapes.small,
+                    color = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant,
+                    modifier = Modifier.size(40.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = option.icon,
+                            contentDescription = null,
+                            tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.width(spacing.medium))
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = stringResource(option.titleResId),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = option.readablePath,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
+                        maxLines = 1
+                    )
+                }
+
+                if (option.isCustomOrSdCard) {
+                    TextButton(
+                        onClick = onChangeClick,
+                        shape = MaterialTheme.shapes.small,
+                        modifier = Modifier.height(MinTouchTargetSize)
+                    ) {
+                        Text(
+                            text = stringResource(R.string.dest_change_btn),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+
+                RadioButton(
+                    selected = isSelected,
+                    onClick = onCardClick
+                )
+            }
+
+            Spacer(modifier = Modifier.height(spacing.small))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = option.freeSpaceFormatted,
+                    style = VidGetTheme.metricTextStyle,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(spacing.extraSmall))
+
+            LinearProgressIndicator(
+                progress = { option.freeSpaceRatio },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(6.dp),
+                color = if (option.freeSpaceRatio < 0.10f) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                trackColor = MaterialTheme.colorScheme.surfaceVariant
+            )
+
+            if (option.hintResId != null) {
+                Spacer(modifier = Modifier.height(spacing.extraSmall))
+                Text(
+                    text = stringResource(option.hintResId),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f)
+                )
+            }
+        }
+    }
 }`
   },
   {
-    path: 'ui/src/main/java/com/vidget/ui/theme/Theme.kt',
-    name: 'Theme.kt',
-    module: 'ui',
+    path: 'core/src/test/java/com/vidget/core/storage/StorageSpaceCheckerTest.kt',
+    name: 'StorageSpaceCheckerTest.kt',
+    module: 'core',
     language: 'kotlin',
-    description: 'ثيم التطبيق مع ألوان الوضعين الداكن والفاتح ودعم Material You والخطوط التلقائية',
-    content: `package com.vidget.ui.theme
+    description: 'اختبارات وحدة لحساب المساحة المطلوبة (1.10x للمؤقت و2.10x لعملية دمج المسارين)',
+    content: `package com.vidget.core.storage
 
-import android.app.Activity
-import android.os.Build
-import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalView
-import androidx.core.view.WindowCompat
-import com.vidget.domain.model.ThemeMode
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Test
 
-@Composable
-fun VidGetTheme(
-    themeMode: ThemeMode = ThemeMode.SYSTEM,
-    dynamicColor: Boolean = false,
-    isArabic: Boolean = isCurrentLocaleArabic(),
-    content: @Composable () -> Unit
-) {
-    val darkTheme = when (themeMode) {
-        ThemeMode.SYSTEM -> isSystemInDarkTheme()
-        ThemeMode.LIGHT -> false
-        ThemeMode.DARK -> true
-    }
+class StorageSpaceCheckerTest {
 
-    val context = LocalContext.current
-    val colorScheme: ColorScheme = when {
-        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-        }
-        darkTheme -> DarkColorScheme
-        else -> LightColorScheme
-    }
-
-    CompositionLocalProvider(
-        LocalSpacing provides Spacing(),
-        LocalExtendedColors provides if (darkTheme) DarkExtendedColors else LightExtendedColors,
-        LocalAppFontFamily provides resolveFontFamily(isArabic),
-        LocalMetricTextStyle provides createMetricTextStyle(isArabic)
-    ) {
-        MaterialTheme(
-            colorScheme = colorScheme,
-            typography = appTypography(isArabic),
-            shapes = VidGetShapes,
-            content = content
+    @Test
+    fun calculateRequiredTempBytes_single_stream_applies_10_percent_buffer() {
+        val estimatedBytes = 100_000_000L
+        val required = StorageSpaceChecker.calculateRequiredTempBytes(
+            estimatedSizeBytes = estimatedBytes,
+            hasSeparateStreams = false
         )
+        assertEquals(110_000_000L, required)
+    }
+
+    @Test
+    fun calculateRequiredTempBytes_separate_streams_adds_merge_overhead() {
+        val estimatedBytes = 100_000_000L
+        val required = StorageSpaceChecker.calculateRequiredTempBytes(
+            estimatedSizeBytes = estimatedBytes,
+            hasSeparateStreams = true
+        )
+        assertEquals(210_000_000L, required)
+    }
+
+    @Test
+    fun calculateRequiredTempBytes_zero_or_negative_returns_zero() {
+        assertEquals(0L, StorageSpaceChecker.calculateRequiredTempBytes(0L, false))
+        assertEquals(0L, StorageSpaceChecker.calculateRequiredTempBytes(-500L, true))
+    }
+
+    @Test
+    fun formatBytes_formats_units_correctly() {
+        assertEquals("0 B", StorageSpaceChecker.formatBytes(0L))
+        assertEquals("500 B", StorageSpaceChecker.formatBytes(500L))
+        assertEquals("1.0 KB", StorageSpaceChecker.formatBytes(1024L))
+        assertEquals("50.0 MB", StorageSpaceChecker.formatBytes(50L * 1024 * 1024))
+        assertEquals("1.50 GB", StorageSpaceChecker.formatBytes((1.50 * 1024 * 1024 * 1024).toLong()))
+    }
+}`
+  },
+  {
+    path: 'core/src/test/java/com/vidget/core/naming/FileNamerTest.kt',
+    name: 'FileNamerTest.kt',
+    module: 'core',
+    language: 'kotlin',
+    description: 'اختبارات وحدة شاملة: أسماء عربية، إيموجي، أسماء طويلة 120 حرفاً، أسماء ويندوز المحجوزة، وتكرار متعدد',
+    content: `package com.vidget.core.naming
+
+import com.vidget.domain.model.NameConflictResolution
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class FileNamerTest {
+
+    @Test
+    fun sanitizeBaseName_preserves_arabic_characters_and_diacritics() {
+        val rawArabic = "تَحْمِيلُ فِيدْيُو رَائِعْ وَمُمَيَّزْ"
+        val sanitized = FileNamer.sanitizeBaseName(rawArabic)
+        assertEquals(rawArabic, sanitized)
+    }
+
+    @Test
+    fun sanitizeBaseName_preserves_emojis_and_surrogate_pairs() {
+        val rawWithEmoji = "فيديو رائع 🚀🔥 2026 🎉"
+        val sanitized = FileNamer.sanitizeBaseName(rawWithEmoji)
+        assertEquals(rawWithEmoji, sanitized)
+    }
+
+    @Test
+    fun sanitizeBaseName_replaces_illegal_fat32_and_control_characters() {
+        val illegalInput = "Video: How to code? <Part 1> / \\"Best\\" | *awesome* \\\\ tutorial"
+        val expected = "Video_ How to code_ _Part 1_ _ _Best_ _ _awesome_ _ tutorial"
+        val sanitized = FileNamer.sanitizeBaseName(illegalInput)
+        assertEquals(expected, sanitized)
+    }
+
+    @Test
+    fun sanitizeBaseName_removes_trailing_dots_and_spaces() {
+        val input = "My Important Video....   "
+        val sanitized = FileNamer.sanitizeBaseName(input)
+        assertEquals("My Important Video", sanitized)
+    }
+
+    @Test
+    fun sanitizeBaseName_handles_windows_reserved_names() {
+        val reservedCon = "con"
+        val reservedNul = "NUL"
+        val reservedPrn = "Prn"
+        val reservedCom1 = "COM1"
+
+        assertEquals("_con", FileNamer.sanitizeBaseName(reservedCon))
+        assertEquals("_NUL", FileNamer.sanitizeBaseName(reservedNul))
+        assertEquals("_Prn", FileNamer.sanitizeBaseName(reservedPrn))
+        assertEquals("_COM1", FileNamer.sanitizeBaseName(reservedCom1))
+    }
+
+    @Test
+    fun sanitizeBaseName_truncates_long_names_at_120_codepoints_without_splitting_pairs() {
+        val emojiString = "🔥".repeat(150)
+        val sanitized = FileNamer.sanitizeBaseName(emojiString)
+        assertEquals(120, sanitized.codePointCount(0, sanitized.length))
+        assertEquals("🔥".repeat(120), sanitized)
+    }
+
+    @Test
+    fun generateSubtitleFileName_appends_clean_language_suffix() {
+        val subAr = FileNamer.generateSubtitleFileName("lecture_01", "ar")
+        val subEn = FileNamer.generateSubtitleFileName("lecture_01", "EN")
+        assertEquals("lecture_01.ar.srt", subAr)
+        assertEquals("lecture_01.en.srt", subEn)
+    }
+
+    @Test
+    fun conflictResolver_increments_numbers_properly() {
+        val existingFiles = mutableSetOf("test_video.mp4", "test_video (1).mp4", "test_video (2).mp4")
+        val uniqueName = ConflictResolver.resolveUniqueName(
+            sanitizedBase = "test_video",
+            cleanExt = "mp4",
+            fileExistsCheck = { existingFiles.contains(it) }
+        )
+        assertEquals("test_video (3).mp4", uniqueName)
+    }
+
+    @Test
+    fun templateParser_substitutes_allowed_placeholders() {
+        val context = VideoTemplateContext(
+            title = "أندرويد 15 للمحترفين",
+            quality = "1080p",
+            ext = "mp4",
+            platform = "YouTube",
+            date = "2026-10-12",
+            id = "xyz123"
+        )
+        val template = "[{platform}] {title} ({quality}) - {date}.{ext}"
+        val parsed = TemplateParser.parse(template, context)
+        assertEquals("[YouTube] أندرويد 15 للمحترفين (1080p) - 2026-10-12.mp4", parsed)
+    }
+
+    @Test
+    fun templateParser_rejects_unauthorized_placeholders() {
+        assertFalse(TemplateParser.validateTemplate("{title} - {hacked_variable}"))
+        assertTrue(TemplateParser.validateTemplate("{title} - {quality}.{ext}"))
     }
 }`
   }
