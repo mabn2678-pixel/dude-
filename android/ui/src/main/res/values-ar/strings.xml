@@ -121,4 +121,208 @@
 
     <!-- نص تقدم الحفظ -->
     <string name="status_saving_file">جارٍ الحفظ… %1$d%%</string>
+
+    <!-- نصوص نافذة تفاصيل الفيديو والجودات VideoDetailsSheet -->
+    <string name="tab_video">فيديو</string>
+    <string name="tab_audio">صوت</string>
+    <string name="tab_subtitles">ترجمات</string>
+    <string name="badge_best">الأفضل</string>
+    <string name="badge_needs_merge">يتطلب دمجاً</string>
+    <string name="subtitles_manual_section">الترجمات الرسمية</string>
+    <string name="subtitles_auto_section">الترجمات التلقائية</string>
+    <string name="subtitles_embed_option">دمجها داخل الملف</string>
+    <string name="subtitles_separate_option">ملف منفصل .srt</string>
+    <string name="no_subtitles_found">لا تتوفر ترجمات لهذا المقطع</string>
+    <string name="total_size_label">الحجم الكلي: %1$s</string>
+    <string name="action_start_download">بدء التحميل</string>
+    <string name="action_cancel">إلغاء</string>
+    <string name="snackbar_added_to_downloads">أُضيف إلى التنزيلات</string>
+    <string name="action_view">عرض</string>
+    <string name="playlist_select_title">اختيار عناصر القائمة</string>
+    <string name="playlist_select_all">تحديد الكل</string>
+    <string name="playlist_apply_all_quality">تطبيق الجودة المختارة على جميع العناصر</string>
+
+    <!-- تبويبات التنزيلات والعدّادات -->
+    <string name="tab_downloads_active">قيد التنفيذ (%1$d)</string>
+    <string name="tab_downloads_completed">المكتملة (%1$d)</string>
+    <string name="tab_downloads_failed">الفاشلة (%1$d)</string>
+    <string name="downloads_action_pause_all">إيقاف الكل</string>
+    <string name="downloads_action_resume_all">استئناف الكل</string>
+    <string name="downloads_action_clear_completed">مسح المكتملة</string>
+
+    <!-- إجراءات بطاقة التحميل -->
+    <string name="action_pause">إيقاف مؤقت</string>
+    <string name="action_resume">استئناف</string>
+    <string name="action_cancel_download">إلغاء</string>
+    <string name="action_download_now">تحميل الآن</string>
+    <string name="action_copy_link">نسخ الرابط</string>
+    <string name="action_remove_from_list">حذف من القائمة</string>
+    <string name="action_play">تشغيل</string>
+    <string name="action_open_folder">فتح المجلد</string>
+    <string name="action_share">مشاركة</string>
+    <string name="action_rename">إعادة تسمية</string>
+    <string name="action_delete">حذف</string>
+    <string name="action_delete_with_file">حذف الملف من التخزين أيضاً</string>
+    <string name="action_retry">إعادة المحاولة</string>
+    <string name="action_details">التفاصيل</string>
+
+    <!-- الحالات الفارغة للتبويبات -->
+    <string name="empty_active_title">لا توجد تنزيلات نشطة</string>
+    <string name="empty_active_desc">عند بدء تحميل فيديو أو صوت، يمكنك متابعة سرعته ونسبته هنا بدقة.</string>
+    <string name="empty_completed_title">لا توجد تنزيلات مكتملة</string>
+    <string name="empty_completed_desc">ستظهر ملفاتك التي انتهى تحميلها هنا جاهزة للمشاهدة بدون إنترنت.</string>
+    <string name="empty_failed_title">لا توجد تنزيلات متعثرة</string>
+    <string name="empty_failed_desc">أي تحميل يواجه مشكلة في الشبكة أو التخزين سيظهر هنا مع خيارات المعالجة.</string>
+
+    <!-- نوافذ تصنيف الأخطاء -->
+    <string name="error_dialog_title">خطأ في التحميل</string>
+    <string name="error_dialog_technical_details">السجل الفني للخطأ</string>
+    <string name="error_network_title">انقطع الاتصال بالشبكة</string>
+    <string name="error_network_desc">فقد الاتصال بالإنترنت أثناء التحميل. سيستأنف VidGet فور عودة اتصال Wi-Fi أو البيانات المتنقلة.</string>
+    <string name="error_network_action">إعادة المحاولة الآن</string>
+    <string name="error_disk_full_title">مساحة الهاتف ممتلئة</string>
+    <string name="error_disk_full_desc">لا توجد مساحة كافية على الجهاز لإكمال حفظ هذا الملف. يرجى توفير مساحة أو اختيار مجلد آخر من الإعدادات.</string>
+    <string name="error_disk_full_action">تغيير وجهة التخزين</string>
+    <string name="error_perm_denied_title">تم رفض إذن التخزين</string>
+    <string name="error_perm_denied_desc">تعذر الوصول إلى المجلد المختار بسبب رفض الإذن أو انتهائه. يرجى إعادة منح الصلاحية.</string>
+    <string name="error_perm_denied_action">إصلاح الإذن</string>
+    <string name="error_merge_failed_title">تعذر دمج المسارات</string>
+    <string name="error_merge_failed_desc">لم نتمكن من دمج الصوت والفيديو في حاوية MP4 بدون إعادة ترميز. هل ترغب بحفظ الملف بصيغة MKV أو الإبقاء على المسارين منفصلين؟</string>
+    <string name="error_merge_failed_action">إعادة المحاولة بصيغة MKV</string>
+    <string name="error_expired_title">انتهت صلاحية رابط التحميل</string>
+    <string name="error_expired_desc">انتهت صلاحية الروابط المباشرة المؤقتة من الخادم بعد مضي ساعات. يلزم استخراج الرابط مجددًا.</string>
+    <string name="error_expired_action">تحديث واستخراج الرابط</string>
+    <string name="error_unsupported_title">المحتوى غير متاح أو خاص</string>
+    <string name="error_unsupported_desc">هذا المقطع خاص أو يتطلب تسجيل الدخول أو محظور جغرافياً في منطقتك.</string>
+
+    <!-- مشغل الفيديو -->
+    <string name="player_title">مشغل VidGet</string>
+    <string name="player_speed">السرعة (%1$sx)</string>
+    <string name="player_aspect_fit">ملاءمة</string>
+    <string name="player_aspect_fill">ملء الشاشة</string>
+    <string name="player_aspect_zoom">تكبير</string>
+    <string name="player_lock_controls">قفل الشاشة</string>
+    <string name="player_unlock_controls">انقر لإلغاء القفل</string>
+    <string name="player_pip_mode">نافذة منبثقة (صورة داخل صورة)</string>
+    <string name="player_resumed_at">تم استئناف التشغيل عند %1$s</string>
+    <string name="player_error_playback">تعذر تشغيل ملف الفيديو</string>
+
+    <!-- أقسام وعناصر الإعدادات -->
+    <string name="settings_section_general">عام</string>
+    <string name="settings_language_title">اللغة</string>
+    <string name="settings_language_desc">لغة عرض واجهة التطبيق</string>
+    <string name="settings_lang_system">تلقائي (لغة النظام)</string>
+    <string name="settings_lang_ar">العربية</string>
+    <string name="settings_lang_en">English</string>
+
+    <string name="settings_theme_title">المظهر</string>
+    <string name="settings_theme_desc">وضع العرض لواجهة التطبيق</string>
+    <string name="settings_theme_system">تلقائي</string>
+    <string name="settings_theme_light">فاتح</string>
+    <string name="settings_theme_dark">داكن</string>
+
+    <string name="settings_dynamic_color_title">الألوان الديناميكية</string>
+    <string name="settings_dynamic_color_desc">استخراج الألوان من خلفية الشاشة (Material You)</string>
+
+    <string name="settings_clipboard_title">رصد الحافظة</string>
+    <string name="settings_clipboard_desc">التعرف التلقائي على روابط الفيديو المنسوخة فور فتح التطبيق</string>
+
+    <string name="settings_section_downloads">التحميل</string>
+    <string name="settings_save_dir_title">مجلد الحفظ</string>
+    <string name="settings_save_dir_desc">المجلد المخصص لحفظ الوسائط المكتملة</string>
+
+    <string name="settings_naming_title">قالب التسمية</string>
+    <string name="settings_naming_desc">النمط المتبع لتسمية ملفات التنزيل</string>
+
+    <string name="settings_conflict_title">سلوك تعارض الأسماء</string>
+    <string name="settings_conflict_desc">الإجراء المتّبع عند وجود ملف يحمل نفس الاسم</string>
+
+    <string name="settings_org_title">تنظيم المجلدات</string>
+    <string name="settings_org_desc">تقسيم التنزيلات تلقائيًا إلى مجلدات فرعية</string>
+
+    <string name="settings_default_quality_title">الجودة الافتراضية</string>
+    <string name="settings_default_quality_desc">الجودة المختارة مسبقًا عند فحص الروابط</string>
+    <string name="quality_always_ask">دائمًا اسأل</string>
+    <string name="quality_best">الأفضل</string>
+    <string name="quality_1080p">1080p (عالية الدقة)</string>
+    <string name="quality_720p">720p (متوسطة الدقة)</string>
+    <string name="quality_480p">480p (منخفضة الدقة)</string>
+    <string name="quality_audio_only">صوت فقط</string>
+
+    <string name="settings_default_format_title">الصيغة الافتراضية</string>
+    <string name="settings_default_format_desc">الحاوية المعتمدة للملفات المدمجة</string>
+
+    <string name="settings_connections_title">عدد الاتصالات</string>
+    <string name="settings_connections_desc">%1$d مسارات اتصال متوازية لكل ملف</string>
+
+    <string name="settings_concurrent_title">التحميلات المتزامنة</string>
+    <string name="settings_concurrent_desc">%1$d مهام تحميل نشطة في الوقت ذاته</string>
+
+    <string name="settings_embed_metadata_title">تضمين الغلاف والميتاداتا</string>
+    <string name="settings_embed_metadata_desc">دمج الغلاف المصغر والعنوان والوسوم داخل الملف</string>
+
+    <string name="settings_section_network">الشبكة</string>
+    <string name="settings_wifi_only_title">Wi-Fi فقط</string>
+    <string name="settings_wifi_only_desc">إيقاف التنزيل مؤقتًا عند الاتصال عبر بيانات الهاتف</string>
+
+    <string name="settings_data_saver_title">توفير البيانات</string>
+    <string name="settings_data_saver_desc">تقليل استهلاك البيانات والمسارات المتعددة على الشبكات الخلوية</string>
+
+    <string name="settings_speed_limit_title">حد السرعة</string>
+    <string name="settings_speed_limit_desc">الحد الأقصى لسرعة التنزيل</string>
+    <string name="speed_limit_none">بلا حد</string>
+
+    <string name="settings_allowed_hours_title">ساعات التحميل المسموحة</string>
+    <string name="settings_allowed_hours_desc">تقييد التنزيل بفترة زمنية محددة</string>
+
+    <string name="settings_block_roaming_title">منع التحميل أثناء التجوال</string>
+    <string name="settings_block_roaming_desc">إيقاف التحميل بالكامل أثناء التجوال الدولي لتجنب الرسوم</string>
+
+    <string name="settings_section_storage">التخزين</string>
+    <string name="settings_clear_cache_title">مسح الكاش</string>
+    <string name="settings_clear_cache_desc">الصور المصغرة وسجلات الاستخراج المؤقتة: %1$s</string>
+    <string name="settings_delete_orphans_title">حذف المؤقتات اليتيمة</string>
+    <string name="settings_delete_orphans_desc">الملفات الجزئية غير المكتملة الأقدم من 24 ساعة: %1$d ملف (%2$s)</string>
+    <string name="settings_free_space_title">المساحة الحرة</string>
+    <string name="settings_free_space_desc">متاح %1$s من إجمالي %2$s</string>
+
+    <string name="settings_section_advanced">متقدم</string>
+    <string name="settings_ytdlp_title">تحديث yt-dlp</string>
+    <string name="settings_ytdlp_desc">الإصدار الحالي: %1$s • قناة %2$s</string>
+    <string name="settings_ytdlp_action_update">التحقق والتحديث الآن</string>
+    <string name="settings_ytdlp_auto_title">تحديث تلقائي لـ yt-dlp</string>
+    <string name="settings_ytdlp_auto_desc">فحص التحديثات يوميًا كل 24 ساعة عبر Wi-Fi</string>
+    <string name="settings_ytdlp_channel_title">قناة تحديث yt-dlp</string>
+    <string name="settings_ytdlp_channel_desc">الاختيار بين القناة المستقرة (Stable) والقناة التجريبية (Nightly)</string>
+
+    <string name="settings_cookies_title">ملف cookies</string>
+    <string name="settings_cookies_desc">استيراد ملف كوكيز بتنسيق Netscape للوصول للمحتوى المقيد</string>
+    <string name="settings_cookies_import">استيراد ملف Cookies</string>
+    <string name="settings_cookies_clear">حذف ملف Cookies</string>
+    <string name="settings_cookies_loaded">الملف الحالي: %1$s</string>
+
+    <string name="settings_proxy_title">بروكسي (Proxy)</string>
+    <string name="settings_proxy_desc">توجيه طلبات التنزيل عبر خادم وكيل HTTP أو SOCKS5</string>
+
+    <string name="settings_battery_title">تجاهل تحسين البطارية</string>
+    <string name="settings_battery_desc">السماح للتطبيق بالعمل في الخلفية دون انقطاع التحميل</string>
+
+    <string name="settings_diagnostic_title">تصدير سجل التشخيص</string>
+    <string name="settings_diagnostic_desc">مشاركة معلومات الجهاز والبيئة لتشخيص المشاكل الفنية</string>
+
+    <string name="settings_reset_title">إعادة الضبط للإعدادات الافتراضية</string>
+    <string name="settings_reset_desc">استعادة كافة خيارات التطبيق لقيم التثبيت الأولية</string>
+    <string name="settings_reset_dialog_title">إعادة ضبط الإعدادات؟</string>
+    <string name="settings_reset_dialog_desc">سيتم إعادة تعيين كافة التفضيلات ومجلدات الحفظ وخيارات التنزيل. لن يتم حذف الملفات التي قمت بتحميلها بالفعل.</string>
+    <string name="settings_reset_confirm">إعادة الضبط</string>
+
+    <string name="settings_section_about">حول</string>
+    <string name="settings_about_version_title">الإصدار</string>
+    <string name="settings_about_version_desc">VidGet 1.0.0 (بنية 1)</string>
+    <string name="settings_privacy_title">سياسة الخصوصية</string>
+    <string name="settings_privacy_desc">لا جمع للبيانات، بدون تتبع، كافة العمليات تجري على هاتفك</string>
+    <string name="settings_legal_title">إشعار قانوني</string>
+    <string name="settings_legal_desc">تطبيق VidGet مخصص للاستخدام الشخصي وللمحتوى المسموح بتحميله قانونيًا فقط.</string>
+    <string name="settings_licenses_title">تراخيص المكتبات المفتوحة</string>
+    <string name="settings_licenses_desc">تراخيص البرمجيات مفتوحة المصدر المستخدمة في VidGet</string>
 </resources>

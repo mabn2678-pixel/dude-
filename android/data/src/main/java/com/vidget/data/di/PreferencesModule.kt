@@ -30,6 +30,18 @@ abstract class PreferencesBindingModule {
     abstract fun bindDestinationRepository(
         impl: com.vidget.data.repository.DestinationRepositoryImpl
     ): com.vidget.domain.repository.DestinationRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindDownloadRepository(
+        impl: com.vidget.data.repository.DownloadRepositoryImpl
+    ): com.vidget.domain.repository.DownloadRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindSettingsRepository(
+        impl: com.vidget.data.repository.SettingsRepositoryImpl
+    ): com.vidget.domain.repository.SettingsRepository
 }
 
 @Module

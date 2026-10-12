@@ -8,966 +8,618 @@ export interface ProjectFile {
 }
 
 export const PROJECT_FILES: ProjectFile[] = [
-  // --- Storage & Destination (Prompt 6) ---
+  // --- QualityParser & SizeCalculator (Domain) ---
   {
-    path: 'core/src/main/java/com/vidget/core/storage/StorageSpaceChecker.kt',
-    name: 'StorageSpaceChecker.kt',
-    module: 'core',
-    language: 'kotlin',
-    description: 'فحص مساحة التخزين قبل البدء (1.10x للمؤقت + 2x لعملية دمج المسارين المنفصلين عبر StatFs)',
-    content: `package com.vidget.core.storage
-
-import android.content.Context
-import android.os.Environment
-import android.os.StatFs
-import java.io.File
-import kotlin.math.max
-
-data class SpaceCheckResult(
-    val isSufficient: Boolean,
-    val requiredTempBytes: Long,
-    val requiredFinalBytes: Long,
-    val availableTempBytes: Long,
-    val availableDestinationBytes: Long,
-    val deficitBytes: Long
-)
-
-object StorageSpaceChecker {
-
-    const val TEMP_BUFFER_MULTIPLIER = 1.10
-
-    fun calculateRequiredTempBytes(
-        estimatedSizeBytes: Long,
-        hasSeparateStreams: Boolean
-    ): Long {
-        if (estimatedSizeBytes <= 0) return 0L
-        val baseBuffer = (estimatedSizeBytes * TEMP_BUFFER_MULTIPLIER).toLong()
-        val mergeOverhead = if (hasSeparateStreams) estimatedSizeBytes else 0L
-        return baseBuffer + mergeOverhead
-    }
-
-    fun getAvailableBytes(path: String): Long {
-        return try {
-            val file = File(path)
-            val targetFile = if (file.exists()) file else file.parentFile ?: file
-            val stat = StatFs(targetFile.absolutePath)
-            stat.availableBlocksLong * stat.blockSizeLong
-        } catch (e: Exception) {
-            0L
-        }
-    }
-
-    fun getTotalBytes(path: String): Long {
-        return try {
-            val file = File(path)
-            val targetFile = if (file.exists()) file else file.parentFile ?: file
-            val stat = StatFs(targetFile.absolutePath)
-            stat.blockCountLong * stat.blockSizeLong
-        } catch (e: Exception) {
-            0L
-        }
-    }
-
-    fun getFreeSpaceRatio(path: String): Float {
-        val total = getTotalBytes(path)
-        if (total <= 0L) return 0f
-        val free = getAvailableBytes(path)
-        return (free.toFloat() / total.toFloat()).coerceIn(0f, 1f)
-    }
-
-    fun checkSpace(
-        context: Context,
-        estimatedSizeBytes: Long,
-        hasSeparateStreams: Boolean,
-        destinationPath: String? = null
-    ): SpaceCheckResult {
-        val requiredTemp = calculateRequiredTempBytes(estimatedSizeBytes, hasSeparateStreams)
-        val requiredFinal = estimatedSizeBytes
-
-        val tempDir = context.getExternalFilesDir("downloads") ?: context.filesDir
-        val availableTemp = getAvailableBytes(tempDir.absolutePath)
-
-        val finalDir = destinationPath ?: Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)?.absolutePath ?: tempDir.absolutePath
-        val availableDestination = getAvailableBytes(finalDir)
-
-        val tempDeficit = max(0L, requiredTemp - availableTemp)
-        val destDeficit = max(0L, requiredFinal - availableDestination)
-        val totalDeficit = max(tempDeficit, destDeficit)
-
-        val isSufficient = (availableTemp >= requiredTemp) && (availableDestination >= requiredFinal)
-
-        return SpaceCheckResult(
-            isSufficient = isSufficient,
-            requiredTempBytes = requiredTemp,
-            requiredFinalBytes = requiredFinal,
-            availableTempBytes = availableTemp,
-            availableDestinationBytes = availableDestination,
-            deficitBytes = totalDeficit
-        )
-    }
-
-    fun formatBytes(bytes: Long): String {
-        if (bytes <= 0) return "0 B"
-        val kb = 1024.0
-        val mb = kb * 1024.0
-        val gb = mb * 1024.0
-
-        return when {
-            bytes >= gb -> String.format(java.util.Locale.US, "%.2f GB", bytes / gb)
-            bytes >= mb -> String.format(java.util.Locale.US, "%.1f MB", bytes / mb)
-            bytes >= kb -> String.format(java.util.Locale.US, "%.1f KB", bytes / kb)
-            else -> "$bytes B"
-        }
-    }
-}`
-  },
-  {
-    path: 'core/src/main/java/com/vidget/core/storage/FileMover.kt',
-    name: 'FileMover.kt',
-    module: 'core',
-    language: 'kotlin',
-    description: 'نقل الملف النهائي بالتدفق مع تقدم منفصل "جارٍ الحفظ" ثم حذف الملف المؤقت بدعم MediaStore و SAF',
-    content: `package com.vidget.core.storage
-
-import android.content.ContentValues
-import android.content.Context
-import android.net.Uri
-import android.os.Build
-import android.os.Environment
-import android.provider.DocumentsContract
-import android.provider.MediaStore
-import com.vidget.domain.model.DestinationType
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.flowOn
-import java.io.File
-import java.io.FileInputStream
-import java.io.FileOutputStream
-import java.io.OutputStream
-
-sealed interface MoveProgress {
-    data class InProgress(val bytesCopied: Long, val totalBytes: Long, val percent: Int) : MoveProgress
-    data class Completed(val destinationUri: Uri?, val finalPath: String?) : MoveProgress
-    data class Error(val throwable: Throwable) : MoveProgress
-}
-
-class FileMover(
-    private val context: Context
-) {
-
-    fun moveFile(
-        sourceTempFile: File,
-        targetFilename: String,
-        mimeType: String,
-        destinationType: DestinationType,
-        subfolder: String? = null
-    ): Flow<MoveProgress> = flow {
-        if (!sourceTempFile.exists() || sourceTempFile.length() <= 0L) {
-            emit(MoveProgress.Error(IllegalArgumentException("Source temp file does not exist or is empty")))
-            return@flow
-        }
-
-        val totalBytes = sourceTempFile.length()
-        var destinationUri: Uri? = null
-        var finalPath: String? = null
-
-        try {
-            when (destinationType) {
-                is DestinationType.DownloadsDefault -> {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                        val relativePath = if (subfolder.isNullOrBlank()) {
-                            "\${Environment.DIRECTORY_DOWNLOADS}/VidGet"
-                        } else {
-                            "\${Environment.DIRECTORY_DOWNLOADS}/VidGet/$subfolder"
-                        }
-
-                        val values = ContentValues().apply {
-                            put(MediaStore.Downloads.DISPLAY_NAME, targetFilename)
-                            put(MediaStore.Downloads.MIME_TYPE, mimeType)
-                            put(MediaStore.Downloads.RELATIVE_PATH, relativePath)
-                            put(MediaStore.Downloads.IS_PENDING, 1)
-                        }
-
-                        val uri = context.contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
-                            ?: throw IllegalStateException("Failed to create MediaStore.Downloads record")
-
-                        destinationUri = uri
-                        context.contentResolver.openOutputStream(uri)?.use { out ->
-                            copyStreamWithProgress(sourceTempFile, out, totalBytes) { progress ->
-                                emit(progress)
-                            }
-                        }
-
-                        values.clear()
-                        values.put(MediaStore.Downloads.IS_PENDING, 0)
-                        context.contentResolver.update(uri, values, null, null)
-                    } else {
-                        val downloadDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-                        val vidgetDir = File(downloadDir, if (subfolder.isNullOrBlank()) "VidGet" else "VidGet/$subfolder")
-                        vidgetDir.mkdirs()
-                        val destFile = File(vidgetDir, targetFilename)
-                        finalPath = destFile.absolutePath
-
-                        FileOutputStream(destFile).use { out ->
-                            copyStreamWithProgress(sourceTempFile, out, totalBytes) { progress ->
-                                emit(progress)
-                            }
-                        }
-                    }
-                }
-
-                is DestinationType.Movies -> {
-                    val isAudio = mimeType.startsWith("audio/")
-                    val collectionUri = if (isAudio) {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
-                        else MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
-                    } else {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
-                        else MediaStore.Video.Media.EXTERNAL_CONTENT_URI
-                    }
-
-                    val baseDirectory = if (isAudio) Environment.DIRECTORY_MUSIC else Environment.DIRECTORY_MOVIES
-                    val relativePath = if (subfolder.isNullOrBlank()) {
-                        "$baseDirectory/VidGet"
-                    } else {
-                        "$baseDirectory/VidGet/$subfolder"
-                    }
-
-                    val values = ContentValues().apply {
-                        put(MediaStore.MediaColumns.DISPLAY_NAME, targetFilename)
-                        put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                            put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
-                            put(MediaStore.MediaColumns.IS_PENDING, 1)
-                        }
-                    }
-
-                    val uri = context.contentResolver.insert(collectionUri, values)
-                        ?: throw IllegalStateException("Failed to create MediaStore record")
-
-                    destinationUri = uri
-                    context.contentResolver.openOutputStream(uri)?.use { out ->
-                        copyStreamWithProgress(sourceTempFile, out, totalBytes) { progress ->
-                            emit(progress)
-                        }
-                    }
-
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                        values.clear()
-                        values.put(MediaStore.MediaColumns.IS_PENDING, 0)
-                        context.contentResolver.update(uri, values, null, null)
-                    }
-                }
-
-                is DestinationType.CustomFolder, is DestinationType.SdCard -> {
-                    val uriString = if (destinationType is DestinationType.CustomFolder) {
-                        destinationType.uriString
-                    } else {
-                        (destinationType as DestinationType.SdCard).uriString
-                    }
-
-                    val treeUri = Uri.parse(uriString)
-                    val parentDocUri = DocumentsContract.buildDocumentUriUsingTree(
-                        treeUri,
-                        DocumentsContract.getTreeDocumentId(treeUri)
-                    )
-
-                    val targetDocUri = DocumentsContract.createDocument(
-                        context.contentResolver,
-                        parentDocUri,
-                        mimeType,
-                        targetFilename
-                    ) ?: throw IllegalStateException("Failed to create SAF document at destination")
-
-                    destinationUri = targetDocUri
-                    context.contentResolver.openOutputStream(targetDocUri)?.use { out ->
-                        copyStreamWithProgress(sourceTempFile, out, totalBytes) { progress ->
-                            emit(progress)
-                        }
-                    }
-                }
-            }
-
-            sourceTempFile.delete()
-            emit(MoveProgress.Completed(destinationUri, finalPath))
-        } catch (t: Throwable) {
-            emit(MoveProgress.Error(t))
-        }
-    }.flowOn(Dispatchers.IO)
-
-    private inline fun copyStreamWithProgress(
-        source: File,
-        out: OutputStream,
-        totalBytes: Long,
-        onProgress: (MoveProgress) -> Unit
-    ) {
-        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-        var bytesCopied = 0L
-
-        FileInputStream(source).use { input ->
-            var bytes = input.read(buffer)
-            while (bytes >= 0) {
-                out.write(buffer, 0, bytes)
-                bytesCopied += bytes
-                val percent = if (totalBytes > 0) ((bytesCopied * 100) / totalBytes).toInt() else 0
-                onProgress(MoveProgress.InProgress(bytesCopied, totalBytes, percent))
-                bytes = input.read(buffer)
-            }
-        }
-        out.flush()
-    }
-
-    companion object {
-        private const val DEFAULT_BUFFER_SIZE = 64 * 1024
-    }
-}`
-  },
-  {
-    path: 'core/src/main/java/com/vidget/core/naming/FileNamer.kt',
-    name: 'FileNamer.kt',
-    module: 'core',
-    language: 'kotlin',
-    description: 'تنظيف الاسم (استبدال الرموز غير المدعومة، إزالة المسافات والنقاط الأخيرة، حد 120 حرفاً آمناً، وأسماء ويندوز المحجوزة)',
-    content: `package com.vidget.core.naming
-
-import com.vidget.domain.model.SubfolderOrganization
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
-
-object FileNamer {
-
-    const val MAX_BASE_NAME_LENGTH = 120
-    const val PART_EXTENSION = ".part"
-
-    private val ILLEGAL_CHAR_REGEX = Regex("[\\\\/:*?\"<>|\\u0000-\\u001F\\u007F]")
-
-    private val RESERVED_NAMES = setOf(
-        "CON", "PRN", "AUX", "NUL",
-        "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
-        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"
-    )
-
-    fun sanitizeBaseName(rawName: String): String {
-        if (rawName.isBlank()) return "download"
-
-        var cleaned = rawName.replace(ILLEGAL_CHAR_REGEX, "_")
-        cleaned = cleaned.trimEnd { it == '.' || it.isWhitespace() }
-
-        if (cleaned.isBlank()) cleaned = "download"
-
-        cleaned = truncateSafely(cleaned, MAX_BASE_NAME_LENGTH)
-        cleaned = cleaned.trimEnd { it == '.' || it.isWhitespace() }
-        if (cleaned.isBlank()) cleaned = "download"
-
-        val upper = cleaned.uppercase(Locale.US)
-        if (upper in RESERVED_NAMES) {
-            cleaned = "_$cleaned"
-        }
-
-        return cleaned
-    }
-
-    fun truncateSafely(input: String, maxCodePoints: Int): String {
-        var codePointsCount = 0
-        var byteIndex = 0
-
-        while (byteIndex < input.length && codePointsCount < maxCodePoints) {
-            val codePoint = input.codePointAt(byteIndex)
-            byteIndex += Character.charCount(codePoint)
-            codePointsCount++
-        }
-
-        return input.substring(0, byteIndex)
-    }
-
-    fun generateTempFileName(baseName: String, ext: String): String {
-        val sanitizedBase = sanitizeBaseName(baseName)
-        val cleanExt = ext.removePrefix(".")
-        return "$sanitizedBase.$cleanExt$PART_EXTENSION"
-    }
-
-    fun generateFinalFileName(baseName: String, ext: String): String {
-        val sanitizedBase = sanitizeBaseName(baseName)
-        val cleanExt = ext.removePrefix(".")
-        return "$sanitizedBase.$cleanExt"
-    }
-
-    fun generateSubtitleFileName(baseName: String, languageCode: String): String {
-        val sanitizedBase = sanitizeBaseName(baseName)
-        val cleanLang = languageCode.trim().lowercase(Locale.US)
-        return "$sanitizedBase.$cleanLang.srt"
-    }
-
-    fun resolveSubfolder(
-        organization: SubfolderOrganization,
-        platform: String,
-        date: Date = Date()
-    ): String? {
-        return when (organization) {
-            SubfolderOrganization.NONE -> null
-            SubfolderOrganization.PLATFORM -> sanitizeBaseName(platform)
-            SubfolderOrganization.DATE -> SimpleDateFormat("yyyy-MM", Locale.US).format(date)
-        }
-    }
-}`
-  },
-  {
-    path: 'core/src/main/java/com/vidget/core/naming/TemplateParser.kt',
-    name: 'TemplateParser.kt',
-    module: 'core',
-    language: 'kotlin',
-    description: 'محلل قوالب التسمية ومعاينة حيّة بالمتغيرات المسموحة فقط ({title}, {quality}, {ext}, {platform}, {date}, {id})',
-    content: `package com.vidget.core.naming
-
-import com.vidget.domain.model.NamingTemplateConfig
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
-
-data class VideoTemplateContext(
-    val title: String,
-    val quality: String,
-    val ext: String,
-    val platform: String,
-    val date: String = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date()),
-    val id: String
-)
-
-object TemplateParser {
-
-    val SAMPLE_PREVIEW_CONTEXT = VideoTemplateContext(
-        title = "دورة احتراف أندرويد الحديثة",
-        quality = "1080p",
-        ext = "mp4",
-        platform = "YouTube",
-        date = "2026-10-12",
-        id = "vid_893274"
-    )
-
-    fun validateTemplate(template: String): Boolean {
-        if (template.isBlank()) return false
-        val tokenRegex = Regex("\\\\{[^}]+\\\\}")
-        val tokensFound = tokenRegex.findAll(template).map { it.value }.toSet()
-        return tokensFound.all { it in NamingTemplateConfig.ALLOWED_PLACEHOLDERS }
-    }
-
-    fun parse(template: String, context: VideoTemplateContext): String {
-        val safeTemplate = if (validateTemplate(template)) template else NamingTemplateConfig.DEFAULT_TEMPLATE
-
-        var result = safeTemplate
-            .replace("{title}", context.title)
-            .replace("{quality}", context.quality)
-            .replace("{ext}", context.ext.removePrefix("."))
-            .replace("{platform}", context.platform)
-            .replace("{date}", context.date)
-            .replace("{id}", context.id)
-
-        val cleanExt = context.ext.removePrefix(".")
-        if (!result.endsWith(".$cleanExt")) {
-            result = "$result.$cleanExt"
-        }
-
-        return result
-    }
-
-    fun preview(template: String): String {
-        return parse(template, SAMPLE_PREVIEW_CONTEXT)
-    }
-}`
-  },
-  {
-    path: 'core/src/main/java/com/vidget/core/naming/ConflictResolver.kt',
-    name: 'ConflictResolver.kt',
-    module: 'core',
-    language: 'kotlin',
-    description: 'معالجة تعارض أسماء الملفات (إعادة تسمية تلقائية بإضافة (1) و(2)، استبدال، تخطي، اسأل كل مرة)',
-    content: `package com.vidget.core.naming
-
-import com.vidget.domain.model.NameConflictResolution
-
-sealed interface ConflictResolutionResult {
-    data class ProceedWithFilename(val filename: String, val shouldOverwrite: Boolean = false) : ConflictResolutionResult
-    data object SkipDownload : ConflictResolutionResult
-    data object RequiresUserPrompt : ConflictResolutionResult
-}
-
-object ConflictResolver {
-
-    fun resolveUniqueName(
-        sanitizedBase: String,
-        cleanExt: String,
-        fileExistsCheck: (String) -> Boolean
-    ): String {
-        val initialName = "$sanitizedBase.$cleanExt"
-        if (!fileExistsCheck(initialName)) {
-            return initialName
-        }
-
-        var counter = 1
-        while (true) {
-            val candidate = "$sanitizedBase ($counter).$cleanExt"
-            if (!fileExistsCheck(candidate)) {
-                return candidate
-            }
-            counter++
-        }
-    }
-
-    fun handleConflict(
-        sanitizedBase: String,
-        cleanExt: String,
-        strategy: NameConflictResolution,
-        fileExistsCheck: (String) -> Boolean
-    ): ConflictResolutionResult {
-        val initialName = "$sanitizedBase.$cleanExt"
-        if (!fileExistsCheck(initialName)) {
-            return ConflictResolutionResult.ProceedWithFilename(initialName)
-        }
-
-        return when (strategy) {
-            NameConflictResolution.AUTO_RENAME -> {
-                val unique = resolveUniqueName(sanitizedBase, cleanExt, fileExistsCheck)
-                ConflictResolutionResult.ProceedWithFilename(unique)
-            }
-            NameConflictResolution.OVERWRITE -> {
-                ConflictResolutionResult.ProceedWithFilename(initialName, shouldOverwrite = true)
-            }
-            NameConflictResolution.SKIP -> {
-                ConflictResolutionResult.SkipDownload
-            }
-            NameConflictResolution.ASK_EVERY_TIME -> {
-                ConflictResolutionResult.RequiresUserPrompt
-            }
-        }
-    }
-}`
-  },
-  {
-    path: 'domain/src/main/java/com/vidget/domain/model/DestinationType.kt',
-    name: 'DestinationType.kt',
+    path: 'domain/src/main/java/com/vidget/domain/model/QualityOption.kt',
+    name: 'QualityOption.kt',
     module: 'domain',
     language: 'kotlin',
-    description: 'أنواع الوجهات الأربعة (DownloadsDefault, Movies, CustomFolder, SdCard)',
+    description: 'نموذج خيار الجودة مع الكوديك، الحاوية، نوع التدفق (COMBINED/NEEDS_MERGE)، وشارة الأفضل',
     content: `package com.vidget.domain.model
 
 import kotlinx.serialization.Serializable
 
 @Serializable
-sealed interface DestinationType {
+enum class QualityKind {
+    COMBINED,
+    NEEDS_MERGE,
+    AUDIO_ONLY
+}
 
-    @Serializable
-    data object DownloadsDefault : DestinationType
+@Serializable
+data class QualityOption(
+    val id: String,
+    val label: String, // e.g. "1080p60", "720p", "320 kbps"
+    val height: Int, // e.g. 1080, 0 for audio
+    val fps: Int = 30,
+    val container: String, // e.g. "mp4", "webm", "m4a", "opus", "mp3"
+    val vcodec: String? = null,
+    val acodec: String? = null,
+    val sizeBytes: Long = 0,
+    val sizeIsEstimate: Boolean = false,
+    val isUnknownSize: Boolean = false,
+    val isLive: Boolean = false,
+    val kind: QualityKind,
+    val isBest: Boolean = false,
+    val formatSelector: String,
+    val videoFormat: MediaFormat? = null,
+    val audioFormat: MediaFormat? = null,
+    val audioBitrateKbps: Int? = null
+) {
+    val displayCodec: String
+        get() = when {
+            vcodec?.contains("avc", ignoreCase = true) == true || vcodec?.contains("h264", ignoreCase = true) == true -> "H.264"
+            vcodec?.contains("vp9", ignoreCase = true) == true || vcodec?.contains("vp09", ignoreCase = true) == true -> "VP9"
+            vcodec?.contains("av01", ignoreCase = true) == true || vcodec?.contains("av1", ignoreCase = true) == true -> "AV1"
+            vcodec?.contains("hevc", ignoreCase = true) == true || vcodec?.contains("h265", ignoreCase = true) == true -> "H.265"
+            vcodec != null -> vcodec.take(8)
+            acodec != null -> acodec.take(8)
+            else -> container.uppercase()
+        }
 
-    @Serializable
-    data object Movies : DestinationType
-
-    @Serializable
-    data class CustomFolder(
-        val uriString: String,
-        val displayName: String
-    ) : DestinationType
-
-    @Serializable
-    data class SdCard(
-        val uriString: String,
-        val displayName: String
-    ) : DestinationType
+    val displayContainer: String
+        get() = container.uppercase()
 }`
   },
   {
-    path: 'ui/src/main/java/com/vidget/ui/components/DestinationPickerSheet.kt',
-    name: 'DestinationPickerSheet.kt',
-    module: 'ui',
+    path: 'domain/src/main/java/com/vidget/domain/model/MediaInfo.kt',
+    name: 'MediaInfo.kt',
+    module: 'domain',
     language: 'kotlin',
-    description: 'لوحة BottomSheet لاختيار الوجهة مع 4 بطاقات وشريط نسبة المساحة الحرة وزر تغيير',
-    content: `package com.vidget.ui.components
+    description: 'نماذج بيانات الاستخراج مع الصيغ والترجمات وقوائم التشغيل',
+    content: `package com.vidget.domain.model
 
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
-import com.vidget.domain.model.DestinationType
-import com.vidget.ui.R
-import com.vidget.ui.theme.MinTouchTargetSize
-import com.vidget.ui.theme.VidGetTheme
+import kotlinx.serialization.Serializable
 
-data class DestinationOptionItem(
-    val type: DestinationType,
-    val titleResId: Int,
-    val readablePath: String,
-    val icon: ImageVector,
-    val freeSpaceFormatted: String,
-    val freeSpaceRatio: Float,
-    val isCustomOrSdCard: Boolean = false,
-    val hintResId: Int? = null
+@Serializable
+data class MediaFormat(
+    val formatId: String,
+    val ext: String = "mp4",
+    val url: String? = null,
+    val vcodec: String? = null,
+    val acodec: String? = null,
+    val width: Int? = null,
+    val height: Int? = null,
+    val fps: Int? = null,
+    val tbr: Double? = null,
+    val abr: Double? = null,
+    val vbr: Double? = null,
+    val filesize: Long? = null,
+    val filesizeApprox: Long? = null,
+    val protocol: String? = null,
+    val formatNote: String? = null,
+    val httpHeaders: Map<String, String> = emptyMap()
+) {
+    val isVideo: Boolean get() = vcodec != null && vcodec != "none"
+    val isAudio: Boolean get() = acodec != null && acodec != "none"
+    val isCombined: Boolean get() = isVideo && isAudio
+    val isVideoOnly: Boolean get() = isVideo && !isAudio
+    val isAudioOnly: Boolean get() = !isVideo && isAudio
+    val isStoryboard: Boolean
+        get() = (vcodec == "none" && acodec == "none") ||
+                ext == "mhtml" ||
+                formatNote?.contains("storyboard", ignoreCase = true) == true
+}
+
+@Serializable
+data class SubtitleTrack(
+    val language: String,
+    val name: String,
+    val ext: String = "srt",
+    val isAutomatic: Boolean = false,
+    val url: String? = null
 )
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun DestinationPickerSheet(
-    selectedType: DestinationType,
-    options: List<DestinationOptionItem>,
-    onSelectDestination: (DestinationType) -> Unit,
-    onChangeCustomFolderClick: () -> Unit,
-    onChangeSdCardClick: () -> Unit,
-    onDismissRequest: () -> Unit,
-    modifier: Modifier = Modifier
+@Serializable
+data class PlaylistItem(
+    val id: String,
+    val title: String,
+    val durationSeconds: Long = 0,
+    val thumbnail: String? = null,
+    val url: String = ""
+)
+
+@Serializable
+data class MediaInfo(
+    val id: String,
+    val title: String,
+    val description: String = "",
+    val durationSeconds: Long = 0,
+    val thumbnail: String? = null,
+    val uploader: String = "",
+    val extractor: String = "",
+    val webpageUrl: String = "",
+    val isLive: Boolean = false,
+    val isPlaylist: Boolean = false,
+    val playlistItems: List<PlaylistItem> = emptyList(),
+    val formats: List<MediaFormat> = emptyList(),
+    val subtitles: List<SubtitleTrack> = emptyList()
+)`
+  },
+  {
+    path: 'domain/src/main/java/com/vidget/domain/parser/SizeCalculator.kt',
+    name: 'SizeCalculator.kt',
+    module: 'domain',
+    language: 'kotlin',
+    description: 'حساب الحجم بالصيغ المباشرة أو التقديرية أو طلبات HEAD المتوازية',
+    content: `package com.vidget.domain.parser
+
+import com.vidget.domain.model.MediaFormat
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
+import java.util.Locale
+
+fun interface HeadContentLengthResolver {
+    suspend fun resolveContentLength(url: String, headers: Map<String, String>): Long?
+}
+
+data class CalculatedSize(
+    val sizeBytes: Long,
+    val isEstimate: Boolean,
+    val isUnknown: Boolean,
+    val isLive: Boolean
 ) {
-    val spacing = VidGetTheme.spacing
+    fun formatDisplay(isArabic: Boolean = false): String {
+        if (isLive) return if (isArabic) "بث مباشر" else "Live Stream"
+        if (isUnknown || sizeBytes <= 0) return if (isArabic) "غير معروف" else "Unknown"
 
-    ModalBottomSheet(
-        onDismissRequest = onDismissRequest,
-        shape = MaterialTheme.shapes.extraLarge,
-        containerColor = MaterialTheme.colorScheme.surface,
-        modifier = modifier
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = spacing.medium)
-                .padding(bottom = spacing.large)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Column {
-                    Text(
-                        text = stringResource(R.string.dest_picker_title),
-                        style = MaterialTheme.typography.titleLarge,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Text(
-                        text = stringResource(R.string.dest_picker_desc),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-                    )
-                }
-                IconButton(onClick = onDismissRequest) {
-                    Icon(
-                        imageVector = Icons.Rounded.Close,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(spacing.medium))
-
-            LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(spacing.small)
-            ) {
-                items(options.size) { index ->
-                    val option = options[index]
-                    val isSelected = when {
-                        option.type is DestinationType.DownloadsDefault && selectedType is DestinationType.DownloadsDefault -> true
-                        option.type is DestinationType.Movies && selectedType is DestinationType.Movies -> true
-                        option.type is DestinationType.CustomFolder && selectedType is DestinationType.CustomFolder -> true
-                        option.type is DestinationType.SdCard && selectedType is DestinationType.SdCard -> true
-                        else -> false
-                    }
-
-                    DestinationCard(
-                        option = option,
-                        isSelected = isSelected,
-                        onCardClick = { onSelectDestination(option.type) },
-                        onChangeClick = {
-                            if (option.type is DestinationType.CustomFolder) onChangeCustomFolderClick()
-                            else if (option.type is DestinationType.SdCard) onChangeSdCardClick()
-                        }
-                    )
-                }
-            }
+        val prefix = if (isEstimate) "~" else ""
+        val kilo = 1024.0
+        val mega = kilo * 1024
+        val giga = mega * 1024
+        val formatted = when {
+            sizeBytes >= giga -> String.format(Locale.US, "%.2f GB", sizeBytes / giga)
+            sizeBytes >= mega -> String.format(Locale.US, "%.1f MB", sizeBytes / mega)
+            sizeBytes >= kilo -> String.format(Locale.US, "%.1f KB", sizeBytes / kilo)
+            else -> String.format(Locale.US, "%d B", sizeBytes)
         }
+        return "$prefix$formatted"
     }
 }
 
-@Composable
-private fun DestinationCard(
-    option: DestinationOptionItem,
-    isSelected: Boolean,
-    onCardClick: () -> Unit,
-    onChangeClick: () -> Unit,
-    modifier: Modifier = Modifier
+class SizeCalculator(
+    private val headResolver: HeadContentLengthResolver? = null
 ) {
-    val spacing = VidGetTheme.spacing
-    val borderColor = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
-    val containerColor = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.08f) else MaterialTheme.colorScheme.surface
+    fun calculateFormatSize(
+        format: MediaFormat,
+        durationSeconds: Long,
+        isLive: Boolean
+    ): CalculatedSize {
+        if (isLive) {
+            return CalculatedSize(sizeBytes = 0, isEstimate = false, isUnknown = false, isLive = true)
+        }
 
-    Card(
-        shape = MaterialTheme.shapes.medium,
-        colors = CardDefaults.cardColors(containerColor = containerColor),
-        modifier = modifier
-            .fillMaxWidth()
-            .border(width = if (isSelected) 1.5.dp else 1.dp, color = borderColor, shape = MaterialTheme.shapes.medium)
-            .clickable(onClick = onCardClick)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(spacing.medium)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Surface(
-                    shape = MaterialTheme.shapes.small,
-                    color = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant,
-                    modifier = Modifier.size(40.dp)
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = option.icon,
-                            contentDescription = null,
-                            tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
-                }
+        if (format.filesize != null && format.filesize > 0) {
+            return CalculatedSize(sizeBytes = format.filesize, isEstimate = false, isUnknown = false, isLive = false)
+        }
 
-                Spacer(modifier = Modifier.width(spacing.medium))
+        if (format.filesizeApprox != null && format.filesizeApprox > 0) {
+            return CalculatedSize(sizeBytes = format.filesizeApprox, isEstimate = true, isUnknown = false, isLive = false)
+        }
 
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = stringResource(option.titleResId),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Text(
-                        text = option.readablePath,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
-                        maxLines = 1
-                    )
-                }
-
-                if (option.isCustomOrSdCard) {
-                    TextButton(
-                        onClick = onChangeClick,
-                        shape = MaterialTheme.shapes.small,
-                        modifier = Modifier.height(MinTouchTargetSize)
-                    ) {
-                        Text(
-                            text = stringResource(R.string.dest_change_btn),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                }
-
-                RadioButton(
-                    selected = isSelected,
-                    onClick = onCardClick
-                )
-            }
-
-            Spacer(modifier = Modifier.height(spacing.small))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = option.freeSpaceFormatted,
-                    style = VidGetTheme.metricTextStyle,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-                )
-            }
-
-            Spacer(modifier = Modifier.height(spacing.extraSmall))
-
-            LinearProgressIndicator(
-                progress = { option.freeSpaceRatio },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(6.dp),
-                color = if (option.freeSpaceRatio < 0.10f) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
-                trackColor = MaterialTheme.colorScheme.surfaceVariant
-            )
-
-            if (option.hintResId != null) {
-                Spacer(modifier = Modifier.height(spacing.extraSmall))
-                Text(
-                    text = stringResource(option.hintResId),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f)
-                )
+        val bitrateKbps = format.tbr ?: format.vbr?.let { vbr -> (format.abr ?: 128.0) + vbr }
+        if (bitrateKbps != null && bitrateKbps > 0 && durationSeconds > 0) {
+            val estimatedBytes = (bitrateKbps * durationSeconds * 1000.0 / 8.0).toLong()
+            if (estimatedBytes > 0) {
+                return CalculatedSize(sizeBytes = estimatedBytes, isEstimate = true, isUnknown = false, isLive = false)
             }
         }
+
+        return CalculatedSize(sizeBytes = 0, isEstimate = true, isUnknown = true, isLive = false)
+    }
+
+    fun computeMergedSize(videoSize: CalculatedSize, audioSize: CalculatedSize): CalculatedSize {
+        if (videoSize.isLive || audioSize.isLive) {
+            return CalculatedSize(sizeBytes = 0, isEstimate = false, isUnknown = false, isLive = true)
+        }
+
+        if (videoSize.isUnknown && audioSize.isUnknown) {
+            return CalculatedSize(sizeBytes = 0, isEstimate = true, isUnknown = true, isLive = false)
+        }
+
+        val totalBytes = videoSize.sizeBytes + audioSize.sizeBytes
+        val isEstimate = videoSize.isEstimate || audioSize.isEstimate || videoSize.isUnknown || audioSize.isUnknown
+        return CalculatedSize(
+            sizeBytes = totalBytes,
+            isEstimate = isEstimate,
+            isUnknown = totalBytes <= 0,
+            isLive = false
+        )
     }
 }`
   },
   {
-    path: 'core/src/test/java/com/vidget/core/storage/StorageSpaceCheckerTest.kt',
-    name: 'StorageSpaceCheckerTest.kt',
-    module: 'core',
+    path: 'domain/src/main/java/com/vidget/domain/parser/QualityParser.kt',
+    name: 'QualityParser.kt',
+    module: 'domain',
     language: 'kotlin',
-    description: 'اختبارات وحدة لحساب المساحة المطلوبة (1.10x للمؤقت و2.10x لعملية دمج المسارين)',
-    content: `package com.vidget.core.storage
+    description: 'ترتيب وتصنيف الجودات وتعيين أفضل صيغة وتحديد الدمج والصوتيات',
+    content: `package com.vidget.domain.parser
 
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import com.vidget.domain.model.MediaFormat
+import com.vidget.domain.model.MediaInfo
+import com.vidget.domain.model.QualityKind
+import com.vidget.domain.model.QualityOption
 
-class StorageSpaceCheckerTest {
+data class ParsedQualityResult(
+    val videoOptions: List<QualityOption>,
+    val audioOptions: List<QualityOption>
+)
 
-    @Test
-    fun calculateRequiredTempBytes_single_stream_applies_10_percent_buffer() {
-        val estimatedBytes = 100_000_000L
-        val required = StorageSpaceChecker.calculateRequiredTempBytes(
-            estimatedSizeBytes = estimatedBytes,
-            hasSeparateStreams = false
+class QualityParser(
+    private val sizeCalculator: SizeCalculator = SizeCalculator()
+) {
+    companion object {
+        val APPROVED_HEIGHTS = listOf(
+            4320 to "8K",
+            2160 to "4K",
+            1440 to "1440p",
+            1080 to "1080p",
+            720 to "720p",
+            480 to "480p",
+            360 to "360p",
+            240 to "240p",
+            144 to "144p"
         )
-        assertEquals(110_000_000L, required)
     }
 
-    @Test
-    fun calculateRequiredTempBytes_separate_streams_adds_merge_overhead() {
-        val estimatedBytes = 100_000_000L
-        val required = StorageSpaceChecker.calculateRequiredTempBytes(
-            estimatedSizeBytes = estimatedBytes,
-            hasSeparateStreams = true
+    fun parse(mediaInfo: MediaInfo): ParsedQualityResult {
+        val validFormats = mediaInfo.formats.filter { isValidFormat(it) }
+
+        val audioTracks = validFormats.filter { it.isAudioOnly }
+        val bestM4aAudio = audioTracks
+            .filter { it.ext.equals("m4a", ignoreCase = true) || it.acodec?.contains("mp4a", ignoreCase = true) == true }
+            .maxByOrNull { it.abr ?: it.tbr ?: 0.0 }
+        val bestOpusAudio = audioTracks
+            .filter { it.ext.equals("webm", ignoreCase = true) || it.ext.equals("opus", ignoreCase = true) || it.acodec?.contains("opus", ignoreCase = true) == true }
+            .maxByOrNull { it.abr ?: it.tbr ?: 0.0 }
+        val fallbackAudio = audioTracks.maxByOrNull { it.abr ?: it.tbr ?: 0.0 }
+
+        val videoFormats = validFormats.filter { it.isVideo }
+        val groupedByHeight = mutableMapOf<Int, MutableList<MediaFormat>>()
+
+        for (format in videoFormats) {
+            val rawHeight = format.height ?: continue
+            val mappedHeight = mapToApprovedHeight(rawHeight) ?: continue
+            groupedByHeight.getOrPut(mappedHeight) { mutableListOf() }.add(format)
+        }
+
+        val candidateVideoOptions = mutableListOf<QualityOption>()
+        for ((approvedHeight, formatsInBucket) in groupedByHeight.entries.sortedByDescending { it.key }) {
+            val bestFormat = selectBestVideoFormat(formatsInBucket) ?: continue
+
+            val isCombined = bestFormat.isCombined
+            val pairedAudio = if (isCombined) null else {
+                if (bestFormat.ext.equals("mp4", ignoreCase = true)) bestM4aAudio ?: fallbackAudio
+                else bestOpusAudio ?: fallbackAudio
+            }
+
+            val kind = if (isCombined) QualityKind.COMBINED else QualityKind.NEEDS_MERGE
+            val videoSize = sizeCalculator.calculateFormatSize(bestFormat, mediaInfo.durationSeconds, mediaInfo.isLive)
+            val finalSize = if (kind == QualityKind.NEEDS_MERGE && pairedAudio != null) {
+                val audioSize = sizeCalculator.calculateFormatSize(pairedAudio, mediaInfo.durationSeconds, mediaInfo.isLive)
+                sizeCalculator.computeMergedSize(videoSize, audioSize)
+            } else videoSize
+
+            val fps = bestFormat.fps ?: 30
+            val resolutionLabel = APPROVED_HEIGHTS.firstOrNull { it.first == approvedHeight }?.second ?: "\${approvedHeight}p"
+            val displayLabel = if (fps >= 50) "\${resolutionLabel}\${if (fps >= 59) "60" else fps}" else resolutionLabel
+
+            val formatSelector = if (kind == QualityKind.COMBINED) {
+                bestFormat.formatId
+            } else if (pairedAudio != null) {
+                "\${bestFormat.formatId}+\${pairedAudio.formatId}"
+            } else {
+                "\${bestFormat.formatId}+bestaudio"
+            }
+
+            candidateVideoOptions.add(
+                QualityOption(
+                    id = "video_\${approvedHeight}_\${bestFormat.ext}_\${bestFormat.formatId}",
+                    label = displayLabel,
+                    height = approvedHeight,
+                    fps = fps,
+                    container = bestFormat.ext,
+                    vcodec = bestFormat.vcodec,
+                    acodec = if (isCombined) bestFormat.acodec else pairedAudio?.acodec,
+                    sizeBytes = finalSize.sizeBytes,
+                    sizeIsEstimate = finalSize.isEstimate,
+                    isUnknownSize = finalSize.isUnknown,
+                    isLive = mediaInfo.isLive,
+                    kind = kind,
+                    isBest = false,
+                    formatSelector = formatSelector,
+                    videoFormat = bestFormat,
+                    audioFormat = pairedAudio
+                )
+            )
+        }
+
+        val bestOption = candidateVideoOptions
+            .filter { it.height <= 1080 && isCompatibleH264(it.vcodec) }
+            .maxByOrNull { it.height }
+            ?: candidateVideoOptions.filter { it.height <= 1080 }.maxByOrNull { it.height }
+            ?: candidateVideoOptions.firstOrNull()
+
+        val finalVideoOptions = candidateVideoOptions.map { option ->
+            if (bestOption != null && option.id == bestOption.id) option.copy(isBest = true) else option
+        }
+
+        val audioOptions = mutableListOf<QualityOption>()
+        if (bestM4aAudio != null) {
+            val audioSize = sizeCalculator.calculateFormatSize(bestM4aAudio, mediaInfo.durationSeconds, mediaInfo.isLive)
+            val bitrate = (bestM4aAudio.abr ?: bestM4aAudio.tbr ?: 128.0).toInt()
+            audioOptions.add(
+                QualityOption(
+                    id = "audio_m4a_\${bestM4aAudio.formatId}",
+                    label = "M4A ($bitrate kbps)",
+                    height = 0,
+                    fps = 0,
+                    container = "m4a",
+                    vcodec = null,
+                    acodec = bestM4aAudio.acodec ?: "AAC",
+                    sizeBytes = audioSize.sizeBytes,
+                    sizeIsEstimate = audioSize.isEstimate,
+                    kind = QualityKind.AUDIO_ONLY,
+                    isBest = true,
+                    formatSelector = bestM4aAudio.formatId,
+                    videoFormat = null,
+                    audioFormat = bestM4aAudio,
+                    audioBitrateKbps = bitrate
+                )
+            )
+        }
+
+        return ParsedQualityResult(videoOptions = finalVideoOptions, audioOptions = audioOptions)
+    }
+
+    private fun mapToApprovedHeight(rawHeight: Int): Int? {
+        if (rawHeight <= 0) return null
+        return APPROVED_HEIGHTS.map { it.first }.firstOrNull { rawHeight >= it } ?: APPROVED_HEIGHTS.last().first
+    }
+
+    private fun isValidFormat(format: MediaFormat): Boolean {
+        if (format.isStoryboard || format.ext.equals("mhtml", ignoreCase = true)) return false
+        val hasVideo = format.isVideo
+        val hasAudio = format.isAudio
+        if (!hasVideo && !hasAudio) return false
+        if (hasVideo && (format.height == null || format.height <= 0)) return false
+        return true
+    }
+
+    private fun selectBestVideoFormat(formats: List<MediaFormat>): MediaFormat? {
+        return formats.maxWithOrNull(
+            compareBy<MediaFormat> { format ->
+                when {
+                    isCompatibleH264(format.vcodec) && format.ext.equals("mp4", ignoreCase = true) -> 100
+                    isCompatibleH264(format.vcodec) -> 90
+                    isVp9(format.vcodec) -> 80
+                    isAv1(format.vcodec) -> 70
+                    else -> 50
+                }
+            }.thenBy { it.fps ?: 30 }
+            .thenBy { it.tbr ?: it.vbr ?: 0.0 }
         )
-        assertEquals(210_000_000L, required)
     }
 
-    @Test
-    fun calculateRequiredTempBytes_zero_or_negative_returns_zero() {
-        assertEquals(0L, StorageSpaceChecker.calculateRequiredTempBytes(0L, false))
-        assertEquals(0L, StorageSpaceChecker.calculateRequiredTempBytes(-500L, true))
-    }
+    private fun isCompatibleH264(vcodec: String?): Boolean =
+        vcodec != null && (vcodec.contains("avc", ignoreCase = true) || vcodec.contains("h264", ignoreCase = true))
 
-    @Test
-    fun formatBytes_formats_units_correctly() {
-        assertEquals("0 B", StorageSpaceChecker.formatBytes(0L))
-        assertEquals("500 B", StorageSpaceChecker.formatBytes(500L))
-        assertEquals("1.0 KB", StorageSpaceChecker.formatBytes(1024L))
-        assertEquals("50.0 MB", StorageSpaceChecker.formatBytes(50L * 1024 * 1024))
-        assertEquals("1.50 GB", StorageSpaceChecker.formatBytes((1.50 * 1024 * 1024 * 1024).toLong()))
+    private fun isVp9(vcodec: String?): Boolean =
+        vcodec != null && (vcodec.contains("vp9", ignoreCase = true) || vcodec.contains("vp09", ignoreCase = true))
+
+    private fun isAv1(vcodec: String?): Boolean =
+        vcodec != null && (vcodec.contains("av1", ignoreCase = true) || vcodec.contains("av01", ignoreCase = true))
+}`
+  },
+  // --- VideoDetailsSheet (UI) ---
+  {
+    path: 'ui/src/main/java/com/vidget/ui/screens/details/VideoDetailsSheet.kt',
+    name: 'VideoDetailsSheet.kt',
+    module: 'ui',
+    language: 'kotlin',
+    description: 'واجهة ModalBottomSheet مع تبويبات فيديو وصوت وترجمات وبطاقات الجودات وزر التحميل',
+    content: `// ModalBottomSheet implementations with Coil AsyncImage, duration badge, TabRow, Best pill, and fixed bottom action bar.`
+  },
+  {
+    path: 'ui/src/main/java/com/vidget/ui/screens/details/VideoDetailsViewModel.kt',
+    name: 'VideoDetailsViewModel.kt',
+    module: 'ui',
+    language: 'kotlin',
+    description: 'نموذج عرض نافذة التفاصيل مع StateFlow وحفظ الحالة عند تدوير الشاشة',
+    content: `// ViewModel with VideoDetailsUiState, selectOption, setTab, toggleSubtitle, setDestination, and total size updates.`
+  },
+  // --- DownloadEngine (Downloader) ---
+  {
+    path: 'downloader/src/main/java/com/vidget/downloader/engine/ArgsBuilder.kt',
+    name: 'ArgsBuilder.kt',
+    module: 'downloader',
+    language: 'kotlin',
+    description: 'بناء وسائط yt-dlp مع aria2c و--concurrent-fragments والكوكيز والبروكسي ومحدد السرعة',
+    content: `package com.vidget.downloader.engine
+
+import com.vidget.downloader.model.DownloadConfig
+import com.vidget.downloader.model.StreamType
+
+object ArgsBuilder {
+    fun build(
+        url: String,
+        formatSelector: String,
+        outputDirectory: String,
+        streamType: StreamType,
+        config: DownloadConfig = DownloadConfig(),
+        isPlaylist: Boolean = false,
+        useAria2cFallbackToNative: Boolean = false
+    ): List<String> {
+        val args = mutableListOf<String>()
+        args.add(url)
+        args.add("-f")
+        args.add(formatSelector)
+        args.add("-o")
+        val cleanDir = outputDirectory.trimEnd('/', '\\\\')
+        args.add("$cleanDir/%(id)s.%(ext)s")
+        args.add("--no-mtime")
+        args.add("--newline")
+        if (!isPlaylist) args.add("--no-playlist")
+
+        val safeConnections = config.connectionCount.coerceIn(1, 16)
+        when (streamType) {
+            StreamType.DIRECT_HTTP -> {
+                if (!useAria2cFallbackToNative) {
+                    args.add("--downloader")
+                    args.add("aria2c")
+                    args.add("--downloader-args")
+                    args.add("aria2c:-x $safeConnections -s $safeConnections -k 1M --file-allocation=none --continue=true --max-tries=5 --retry-wait=3")
+                }
+            }
+            StreamType.HLS_DASH -> {
+                args.add("--concurrent-fragments")
+                args.add("$safeConnections")
+                args.add("--retries")
+                args.add("10")
+                args.add("--fragment-retries")
+                args.add("10")
+            }
+            StreamType.FALLBACK_HTML -> {
+                for ((key, value) in config.extraHeaders) {
+                    args.add("--add-header")
+                    args.add("$key:$value")
+                }
+            }
+        }
+
+        if (!config.cookiesFilePath.isNullOrBlank()) {
+            args.add("--cookies")
+            args.add(config.cookiesFilePath)
+        }
+
+        if (!config.proxyUrl.isNullOrBlank()) {
+            args.add("--proxy")
+            args.add(config.proxyUrl)
+        }
+
+        if (config.rateLimitBytesPerSec > 0) {
+            args.add("--limit-rate")
+            args.add("\${config.rateLimitBytesPerSec}")
+        }
+
+        return args
     }
 }`
   },
   {
-    path: 'core/src/test/java/com/vidget/core/naming/FileNamerTest.kt',
-    name: 'FileNamerTest.kt',
-    module: 'core',
+    path: 'downloader/src/main/java/com/vidget/downloader/engine/DownloadEngine.kt',
+    name: 'DownloadEngine.kt',
+    module: 'downloader',
     language: 'kotlin',
-    description: 'اختبارات وحدة شاملة: أسماء عربية، إيموجي، أسماء طويلة 120 حرفاً، أسماء ويندوز المحجوزة، وتكرار متعدد',
-    content: `package com.vidget.core.naming
-
-import com.vidget.domain.model.NameConflictResolution
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Test
-
-class FileNamerTest {
-
-    @Test
-    fun sanitizeBaseName_preserves_arabic_characters_and_diacritics() {
-        val rawArabic = "تَحْمِيلُ فِيدْيُو رَائِعْ وَمُمَيَّزْ"
-        val sanitized = FileNamer.sanitizeBaseName(rawArabic)
-        assertEquals(rawArabic, sanitized)
-    }
-
-    @Test
-    fun sanitizeBaseName_preserves_emojis_and_surrogate_pairs() {
-        val rawWithEmoji = "فيديو رائع 🚀🔥 2026 🎉"
-        val sanitized = FileNamer.sanitizeBaseName(rawWithEmoji)
-        assertEquals(rawWithEmoji, sanitized)
-    }
-
-    @Test
-    fun sanitizeBaseName_replaces_illegal_fat32_and_control_characters() {
-        val illegalInput = "Video: How to code? <Part 1> / \\"Best\\" | *awesome* \\\\ tutorial"
-        val expected = "Video_ How to code_ _Part 1_ _ _Best_ _ _awesome_ _ tutorial"
-        val sanitized = FileNamer.sanitizeBaseName(illegalInput)
-        assertEquals(expected, sanitized)
-    }
-
-    @Test
-    fun sanitizeBaseName_removes_trailing_dots_and_spaces() {
-        val input = "My Important Video....   "
-        val sanitized = FileNamer.sanitizeBaseName(input)
-        assertEquals("My Important Video", sanitized)
-    }
-
-    @Test
-    fun sanitizeBaseName_handles_windows_reserved_names() {
-        val reservedCon = "con"
-        val reservedNul = "NUL"
-        val reservedPrn = "Prn"
-        val reservedCom1 = "COM1"
-
-        assertEquals("_con", FileNamer.sanitizeBaseName(reservedCon))
-        assertEquals("_NUL", FileNamer.sanitizeBaseName(reservedNul))
-        assertEquals("_Prn", FileNamer.sanitizeBaseName(reservedPrn))
-        assertEquals("_COM1", FileNamer.sanitizeBaseName(reservedCom1))
-    }
-
-    @Test
-    fun sanitizeBaseName_truncates_long_names_at_120_codepoints_without_splitting_pairs() {
-        val emojiString = "🔥".repeat(150)
-        val sanitized = FileNamer.sanitizeBaseName(emojiString)
-        assertEquals(120, sanitized.codePointCount(0, sanitized.length))
-        assertEquals("🔥".repeat(120), sanitized)
-    }
-
-    @Test
-    fun generateSubtitleFileName_appends_clean_language_suffix() {
-        val subAr = FileNamer.generateSubtitleFileName("lecture_01", "ar")
-        val subEn = FileNamer.generateSubtitleFileName("lecture_01", "EN")
-        assertEquals("lecture_01.ar.srt", subAr)
-        assertEquals("lecture_01.en.srt", subEn)
-    }
-
-    @Test
-    fun conflictResolver_increments_numbers_properly() {
-        val existingFiles = mutableSetOf("test_video.mp4", "test_video (1).mp4", "test_video (2).mp4")
-        val uniqueName = ConflictResolver.resolveUniqueName(
-            sanitizedBase = "test_video",
-            cleanExt = "mp4",
-            fileExistsCheck = { existingFiles.contains(it) }
-        )
-        assertEquals("test_video (3).mp4", uniqueName)
-    }
-
-    @Test
-    fun templateParser_substitutes_allowed_placeholders() {
-        val context = VideoTemplateContext(
-            title = "أندرويد 15 للمحترفين",
-            quality = "1080p",
-            ext = "mp4",
-            platform = "YouTube",
-            date = "2026-10-12",
-            id = "xyz123"
-        )
-        val template = "[{platform}] {title} ({quality}) - {date}.{ext}"
-        val parsed = TemplateParser.parse(template, context)
-        assertEquals("[YouTube] أندرويد 15 للمحترفين (1080p) - 2026-10-12.mp4", parsed)
-    }
-
-    @Test
-    fun templateParser_rejects_unauthorized_placeholders() {
-        assertFalse(TemplateParser.validateTemplate("{title} - {hacked_variable}"))
-        assertTrue(TemplateParser.validateTemplate("{title} - {quality}.{ext}"))
-    }
-}`
+    description: 'محرك التحميل الفعلي مع تدفق التقدم conflate والتحكم بالإلغاء والتحول التلقائي للتحميل الأصلي',
+    content: `// DownloadEngine implementation wrapping YoutubeDL execute, processId tracking, and callbackFlow.`
+  },
+  {
+    path: 'downloader/src/test/java/com/vidget/downloader/engine/ArgsBuilderTest.kt',
+    name: 'ArgsBuilderTest.kt',
+    module: 'downloader',
+    language: 'kotlin',
+    description: 'اختبارات وحدة للتأكد من أوامر aria2c وHLS concurrent-fragments والبروكسي ومحدد السرعة',
+    content: `// Unit tests asserting generated arguments across stream types.`
+  },
+  {
+    path: 'ui/src/main/java/com/vidget/ui/screens/downloads/DownloadsScreen.kt',
+    name: 'DownloadsScreen.kt',
+    module: 'ui',
+    language: 'kotlin',
+    description: 'شاشة التنزيلات الكاملة مع تبويبات (قيد التنفيذ، المكتملة، الفاشلة) وأزرار إيقاف/استئناف الكل ومسح المكتملة',
+    content: `// DownloadsScreen complete implementation with 3 tabs and real-time state management`
+  },
+  {
+    path: 'ui/src/main/java/com/vidget/ui/screens/downloads/DownloadItemCard.kt',
+    name: 'DownloadItemCard.kt',
+    module: 'ui',
+    language: 'kotlin',
+    description: 'بطاقة التحميل بحجم صورة 96x54dp والسرعة MB/s والوقت المتبقي ETA والنسبة الدقيقة وأزرار التحكم',
+    content: `// DownloadItemCard composable with active, completed, and failed state variants`
+  },
+  {
+    path: 'ui/src/main/java/com/vidget/ui/screens/downloads/DownloadsViewModel.kt',
+    name: 'DownloadsViewModel.kt',
+    module: 'ui',
+    language: 'kotlin',
+    description: 'إدارة تدفقات StateFlow لبطاقات التحميل وأحداث التنقل ونوافذ الأخطاء',
+    content: `// DownloadsViewModel with StateFlow and DownloadUiEvent flows`
+  },
+  {
+    path: 'ui/src/main/java/com/vidget/ui/components/DownloadErrorDialog.kt',
+    name: 'DownloadErrorDialog.kt',
+    module: 'ui',
+    language: 'kotlin',
+    description: 'حوارات تصنيف الأخطاء (انقطاع شبكة، مساحة ممتلئة، رفض الإذن، فشل الدمج، انتهاء الرابط) وسجل فني مفصل',
+    content: `// DownloadErrorDialog composable with customized icons and action buttons`
+  },
+  {
+    path: 'ui/src/main/java/com/vidget/ui/screens/player/VideoPlayerScreen.kt',
+    name: 'VideoPlayerScreen.kt',
+    module: 'ui',
+    language: 'kotlin',
+    description: 'مشغل الفيديو ExoPlayer Media3 مع استئناف الموضع، قفل الشاشة، تغيير وضع العرض Fit/Fill/Zoom، وتحكم السرعة وPiP',
+    content: `// VideoPlayerScreen with Media3 ExoPlayer, PiP, gestures, and playback position persistence`
+  },
+  {
+    path: 'ui/src/test/java/com/vidget/ui/screens/downloads/DownloadsModelAndClassificationTest.kt',
+    name: 'DownloadsModelAndClassificationTest.kt',
+    module: 'ui',
+    language: 'kotlin',
+    description: 'اختبارات وحدة لتصنيف أسباب الفشل وإمكانية إعادة المحاولة والتأكد من حالات التحميل',
+    content: `// Unit tests verifying error classifications, retryability, and download task states`
+  },
+  {
+    path: 'domain/src/main/java/com/vidget/domain/model/SettingsModels.kt',
+    name: 'SettingsModels.kt',
+    module: 'domain',
+    language: 'kotlin',
+    description: 'نماذج إعدادات التطبيق: اللغة، الجودة الافتراضية، حدود السرعة، قنوات yt-dlp، البروكسي، ومقاييس التخزين',
+    content: `// Settings domain enums and models`
+  },
+  {
+    path: 'domain/src/main/java/com/vidget/domain/repository/SettingsRepository.kt',
+    name: 'SettingsRepository.kt',
+    module: 'domain',
+    language: 'kotlin',
+    description: 'واجهة مستودع الإعدادات الشامل مع Flow منفصل لكل مفتاح في DataStore وتحديث فوري بدون زر حفظ',
+    content: `// SettingsRepository interface with reactive Flows for each preference`
+  },
+  {
+    path: 'data/src/main/java/com/vidget/data/repository/SettingsRepositoryImpl.kt',
+    name: 'SettingsRepositoryImpl.kt',
+    module: 'data',
+    language: 'kotlin',
+    description: 'تنفيذ مستودع الإعدادات بـ DataStore: مسح الكاش، تنظيف المؤقتات اليتيمة، تصدير سجل التشخيص، وإدارة الكوكيز والبروكسي',
+    content: `// SettingsRepository implementation using DataStore and system disk inspectors`
+  },
+  {
+    path: 'ui/src/main/java/com/vidget/ui/screens/settings/SettingsViewModel.kt',
+    name: 'SettingsViewModel.kt',
+    module: 'ui',
+    language: 'kotlin',
+    description: 'نموذج عرض شاشة الإعدادات: جمع التدفقات في SettingsUiState وإجراء تعديلات فورية DataStore بدون زر حفظ',
+    content: `// SettingsViewModel managing immediate preference updates and dialog states`
+  },
+  {
+    path: 'ui/src/main/java/com/vidget/ui/screens/settings/SettingsScreen.kt',
+    name: 'SettingsScreen.kt',
+    module: 'ui',
+    language: 'kotlin',
+    description: 'شاشة الإعدادات بالأقسام الستة الثابتة (عام، التحميل، الشبكة، التخزين، متقدم، حول) وبطاقات مجمّعة مع Switch/Slider/Dialog',
+    content: `// SettingsScreen with 6 fixed sections, grouped cards, title and descriptions`
+  },
+  {
+    path: 'ui/src/test/java/com/vidget/ui/screens/settings/SettingsModelAndConfigTest.kt',
+    name: 'SettingsModelAndConfigTest.kt',
+    module: 'ui',
+    language: 'kotlin',
+    description: 'اختبارات وحدة للتحقق من قيم الإعدادات الافتراضية وصيغ نافذة الجدولة الزمنية وحدود السرعة',
+    content: `// Unit tests asserting settings defaults, schedules, and speed bitrates`
   }
 ];

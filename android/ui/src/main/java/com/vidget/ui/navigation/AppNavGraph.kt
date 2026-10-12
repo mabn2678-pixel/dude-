@@ -99,7 +99,11 @@ fun AppNavGraph(
             }
 
             composable<Route.Downloads> {
-                DownloadsScreen()
+                com.vidget.ui.screens.downloads.DownloadsScreen(
+                    onNavigateToPlayer = { videoUri ->
+                        navController.navigate(Route.Player(videoUri))
+                    }
+                )
             }
 
             composable<Route.Library> {
@@ -111,20 +115,20 @@ fun AppNavGraph(
             }
 
             composable<Route.Settings> {
-                SettingsScreen(
-                    onNavigateToLanguage = {
-                        navController.navigate(Route.LanguageSettings)
-                    },
-                    onNavigateToAbout = {
-                        navController.navigate(Route.AboutScreen)
+                com.vidget.ui.screens.settings.SettingsScreen(
+                    onNavigateBack = {
+                        navController.popBackStack()
                     },
                     onOpenBatteryOptimization = onOpenBatteryOptimization
                 )
             }
 
             // 3. Internal Destinations (No Bottom Bar)
-            composable<Route.Player> {
-                PlayerScreen(
+            composable<Route.Player> { backStackEntry ->
+                val videoUri = backStackEntry.arguments?.getString("videoUri")
+                    ?: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
+                com.vidget.ui.screens.player.VideoPlayerScreen(
+                    videoUri = videoUri,
                     onBack = { navController.popBackStack() }
                 )
             }

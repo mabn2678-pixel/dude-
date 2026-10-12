@@ -121,4 +121,208 @@
 
     <!-- Saving In-Progress String -->
     <string name="status_saving_file">Saving to destination… %1$d%%</string>
+
+    <!-- VideoDetailsSheet Strings -->
+    <string name="tab_video">Video</string>
+    <string name="tab_audio">Audio</string>
+    <string name="tab_subtitles">Subtitles</string>
+    <string name="badge_best">Best</string>
+    <string name="badge_needs_merge">Requires merge</string>
+    <string name="subtitles_manual_section">Official Subtitles</string>
+    <string name="subtitles_auto_section">Auto-generated Subtitles</string>
+    <string name="subtitles_embed_option">Embed inside video file</string>
+    <string name="subtitles_separate_option">Save as separate .srt file</string>
+    <string name="no_subtitles_found">No subtitles available for this media</string>
+    <string name="total_size_label">Total Size: %1$s</string>
+    <string name="action_start_download">Start Download</string>
+    <string name="action_cancel">Cancel</string>
+    <string name="snackbar_added_to_downloads">Added to downloads</string>
+    <string name="action_view">View</string>
+    <string name="playlist_select_title">Select Playlist Videos</string>
+    <string name="playlist_select_all">Select All</string>
+    <string name="playlist_apply_all_quality">Apply chosen quality to all selected videos</string>
+
+    <!-- DownloadsScreen Tabs & Counters -->
+    <string name="tab_downloads_active">Active (%1$d)</string>
+    <string name="tab_downloads_completed">Completed (%1$d)</string>
+    <string name="tab_downloads_failed">Failed (%1$d)</string>
+    <string name="downloads_action_pause_all">Pause All</string>
+    <string name="downloads_action_resume_all">Resume All</string>
+    <string name="downloads_action_clear_completed">Clear Completed</string>
+
+    <!-- Download Card Actions -->
+    <string name="action_pause">Pause</string>
+    <string name="action_resume">Resume</string>
+    <string name="action_cancel_download">Cancel</string>
+    <string name="action_download_now">Download Now</string>
+    <string name="action_copy_link">Copy Link</string>
+    <string name="action_remove_from_list">Remove from List</string>
+    <string name="action_play">Play</string>
+    <string name="action_open_folder">Open Folder</string>
+    <string name="action_share">Share</string>
+    <string name="action_rename">Rename</string>
+    <string name="action_delete">Delete</string>
+    <string name="action_delete_with_file">Delete with file from storage</string>
+    <string name="action_retry">Retry</string>
+    <string name="action_details">Details</string>
+
+    <!-- Download Empty States -->
+    <string name="empty_active_title">No active downloads</string>
+    <string name="empty_active_desc">When you download videos or audio, track their real-time progress here.</string>
+    <string name="empty_completed_title">No completed downloads</string>
+    <string name="empty_completed_desc">Your finished downloads will appear here ready to watch or listen offline.</string>
+    <string name="empty_failed_title">No failed downloads</string>
+    <string name="empty_failed_desc">Any interrupted or failed downloads will be listed here with retry options.</string>
+
+    <!-- Error Classification Dialogs -->
+    <string name="error_dialog_title">Download Error</string>
+    <string name="error_dialog_technical_details">Technical Log</string>
+    <string name="error_network_title">Network Connection Lost</string>
+    <string name="error_network_desc">Connection dropped or timed out. VidGet will resume automatically when Wi-Fi or mobile data reconnects.</string>
+    <string name="error_network_action">Retry Now</string>
+    <string name="error_disk_full_title">Device Storage Full</string>
+    <string name="error_disk_full_desc">Not enough free storage space to complete writing this file. Please free up storage space or select another folder in Settings.</string>
+    <string name="error_disk_full_action">Change Destination</string>
+    <string name="error_perm_denied_title">Storage Permission Denied</string>
+    <string name="error_perm_denied_desc">Permission to write to the chosen directory was revoked or denied. Please grant storage access.</string>
+    <string name="error_perm_denied_action">Fix Permission</string>
+    <string name="error_merge_failed_title">Media Merge Issue</string>
+    <string name="error_merge_failed_desc">Video and audio tracks could not be combined into an MP4 container. Would you like to save them in an MKV container or keep separate tracks?</string>
+    <string name="error_merge_failed_action">Retry with MKV</string>
+    <string name="error_expired_title">Temporary Download Link Expired</string>
+    <string name="error_expired_desc">The direct streaming URL expired after several hours. Re-extracting video stream details is required.</string>
+    <string name="error_expired_action">Re-extract Link</string>
+    <string name="error_unsupported_title">Content Unavailable or Private</string>
+    <string name="error_unsupported_desc">This media is private, requires account login, or is restricted in your region.</string>
+
+    <!-- Player Screen -->
+    <string name="player_title">VidGet Video Player</string>
+    <string name="player_speed">Speed (%1$sx)</string>
+    <string name="player_aspect_fit">Fit</string>
+    <string name="player_aspect_fill">Fill</string>
+    <string name="player_aspect_zoom">Zoom</string>
+    <string name="player_lock_controls">Lock Screen</string>
+    <string name="player_unlock_controls">Tap to Unlock</string>
+    <string name="player_pip_mode">Picture in Picture</string>
+    <string name="player_resumed_at">Resumed at %1$s</string>
+    <string name="player_error_playback">Cannot play this video file</string>
+
+    <!-- Settings Sections & Items -->
+    <string name="settings_section_general">General</string>
+    <string name="settings_language_title">Language</string>
+    <string name="settings_language_desc">Application display language</string>
+    <string name="settings_lang_system">System Default</string>
+    <string name="settings_lang_ar">العربية (Arabic)</string>
+    <string name="settings_lang_en">English</string>
+
+    <string name="settings_theme_title">Theme</string>
+    <string name="settings_theme_desc">Appearance mode for application</string>
+    <string name="settings_theme_system">System Default</string>
+    <string name="settings_theme_light">Light</string>
+    <string name="settings_theme_dark">Dark</string>
+
+    <string name="settings_dynamic_color_title">Dynamic Colors</string>
+    <string name="settings_dynamic_color_desc">Material You theme based on device wallpaper</string>
+
+    <string name="settings_clipboard_title">Clipboard Detection</string>
+    <string name="settings_clipboard_desc">Automatically detect copied video links upon opening app</string>
+
+    <string name="settings_section_downloads">Downloads</string>
+    <string name="settings_save_dir_title">Download Location</string>
+    <string name="settings_save_dir_desc">Folder where finished files are stored</string>
+
+    <string name="settings_naming_title">File Naming Template</string>
+    <string name="settings_naming_desc">Format for generating file names</string>
+
+    <string name="settings_conflict_title">Name Conflict Resolution</string>
+    <string name="settings_conflict_desc">Action when a file with the same name exists</string>
+
+    <string name="settings_org_title">Folder Organization</string>
+    <string name="settings_org_desc">Sort downloads into automatic subdirectories</string>
+
+    <string name="settings_default_quality_title">Default Quality</string>
+    <string name="settings_default_quality_desc">Initial resolution choice when analyzing links</string>
+    <string name="quality_always_ask">Always Ask</string>
+    <string name="quality_best">Best Available</string>
+    <string name="quality_1080p">1080p (Full HD)</string>
+    <string name="quality_720p">720p (HD)</string>
+    <string name="quality_480p">480p (SD)</string>
+    <string name="quality_audio_only">Audio Only</string>
+
+    <string name="settings_default_format_title">Default Format</string>
+    <string name="settings_default_format_desc">Container format for combined video tracks</string>
+
+    <string name="settings_connections_title">Connections Count</string>
+    <string name="settings_connections_desc">%1$d parallel download threads per file</string>
+
+    <string name="settings_concurrent_title">Concurrent Downloads</string>
+    <string name="settings_concurrent_desc">%1$d simultaneous active downloads</string>
+
+    <string name="settings_embed_metadata_title">Embed Thumbnail &amp; Metadata</string>
+    <string name="settings_embed_metadata_desc">Embed poster artwork, title and chapters into file</string>
+
+    <string name="settings_section_network">Network</string>
+    <string name="settings_wifi_only_title">Wi-Fi Only</string>
+    <string name="settings_wifi_only_desc">Pause downloads when mobile data is in use</string>
+
+    <string name="settings_data_saver_title">Data Saver</string>
+    <string name="settings_data_saver_desc">Avoid multi-part chunking on mobile networks</string>
+
+    <string name="settings_speed_limit_title">Speed Limit</string>
+    <string name="settings_speed_limit_desc">Cap maximum download throughput</string>
+    <string name="speed_limit_none">No Limit</string>
+
+    <string name="settings_allowed_hours_title">Allowed Download Hours</string>
+    <string name="settings_allowed_hours_desc">Restrict background downloads to specific window</string>
+
+    <string name="settings_block_roaming_title">Block on Roaming</string>
+    <string name="settings_block_roaming_desc">Prevent data usage while roaming internationally</string>
+
+    <string name="settings_section_storage">Storage</string>
+    <string name="settings_clear_cache_title">Clear Cache</string>
+    <string name="settings_clear_cache_desc">Temporary thumbnails and cache: %1$s</string>
+    <string name="settings_delete_orphans_title">Delete Orphaned Temp Files</string>
+    <string name="settings_delete_orphans_desc">Incomplete parts older than 24h: %1$d files (%2$s)</string>
+    <string name="settings_free_space_title">Free Storage Space</string>
+    <string name="settings_free_space_desc">%1$s available of %2$s</string>
+
+    <string name="settings_section_advanced">Advanced</string>
+    <string name="settings_ytdlp_title">yt-dlp Engine Update</string>
+    <string name="settings_ytdlp_desc">Current: %1$s • %2$s channel</string>
+    <string name="settings_ytdlp_action_update">Check &amp; Update Now</string>
+    <string name="settings_ytdlp_auto_title">Auto-update yt-dlp</string>
+    <string name="settings_ytdlp_auto_desc">Automatically check every 24 hours on Wi-Fi</string>
+    <string name="settings_ytdlp_channel_title">yt-dlp Channel</string>
+    <string name="settings_ytdlp_channel_desc">Select between Stable releases and Nightly builds</string>
+
+    <string name="settings_cookies_title">Cookies File (Netscape)</string>
+    <string name="settings_cookies_desc">Import Netscape cookies to access private content</string>
+    <string name="settings_cookies_import">Import Cookies</string>
+    <string name="settings_cookies_clear">Clear Cookies</string>
+    <string name="settings_cookies_loaded">Active file: %1$s</string>
+
+    <string name="settings_proxy_title">Network Proxy</string>
+    <string name="settings_proxy_desc">Route downloads through HTTP or SOCKS5 proxy</string>
+
+    <string name="settings_battery_title">Ignore Battery Optimization</string>
+    <string name="settings_battery_desc">Allow uninterrupted background download processing</string>
+
+    <string name="settings_diagnostic_title">Export Diagnostic Log</string>
+    <string name="settings_diagnostic_desc">Share device details and environment logs for debugging</string>
+
+    <string name="settings_reset_title">Reset to Default Settings</string>
+    <string name="settings_reset_desc">Restore all settings to their original factory values</string>
+    <string name="settings_reset_dialog_title">Reset All Settings?</string>
+    <string name="settings_reset_dialog_desc">This will reset all preferences, custom paths, and download options to their default state. Completed downloads will not be deleted.</string>
+    <string name="settings_reset_confirm">Reset</string>
+
+    <string name="settings_section_about">About</string>
+    <string name="settings_about_version_title">App Version</string>
+    <string name="settings_about_version_desc">VidGet 1.0.0 (Build 1)</string>
+    <string name="settings_privacy_title">Privacy Policy</string>
+    <string name="settings_privacy_desc">No tracking, no analytics, 100% on-device processing</string>
+    <string name="settings_legal_title">Legal Notice</string>
+    <string name="settings_legal_desc">VidGet is intended strictly for downloading content you own or have explicit authorization to download.</string>
+    <string name="settings_licenses_title">Open Source Licenses</string>
+    <string name="settings_licenses_desc">Licenses of open source libraries used in VidGet</string>
 </resources>
