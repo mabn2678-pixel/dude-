@@ -2,7 +2,7 @@ export interface ProjectFile {
   path: string;
   name: string;
   module: string;
-  language: 'kotlin' | 'toml' | 'xml' | 'pro' | 'markdown';
+  language: 'kotlin' | 'toml' | 'xml' | 'pro' | 'markdown' | 'properties';
   content: string;
   description: string;
 }
@@ -621,5 +621,13 @@ object ArgsBuilder {
     language: 'kotlin',
     description: 'اختبارات وحدة للتحقق من قيم الإعدادات الافتراضية وصيغ نافذة الجدولة الزمنية وحدود السرعة',
     content: `// Unit tests asserting settings defaults, schedules, and speed bitrates`
+  },
+  {
+    path: 'android/gradle.properties',
+    name: 'gradle.properties',
+    module: 'android',
+    language: 'properties',
+    description: 'ملف خصائص Gradle لتفعيل android.useAndroidX=true وتحسين استقرار الذاكرة وسرعة البناء',
+    content: `android.useAndroidX=true\nandroid.nonTransitiveRClass=true\norg.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8\nkotlin.code.style=official\norg.gradle.parallel=true\norg.gradle.caching=true`
   }
 ];
