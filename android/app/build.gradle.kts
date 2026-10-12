@@ -82,11 +82,11 @@ android {
 
 dependencies {
     // Modular Project Dependencies
-    implementation(projects.core)
-    implementation(projects.domain)
-    implementation(projects.data)
-    implementation(projects.downloader)
-    implementation(projects.ui)
+    implementation(project(":core"))
+    implementation(project(":domain"))
+    implementation(project(":data"))
+    implementation(project(":downloader"))
+    implementation(project(":ui"))
 
     // AndroidX & Compose
     implementation(libs.androidx.core.ktx)

@@ -25,8 +25,8 @@ android {
 }
 
 dependencies {
-    implementation(projects.core)
-    implementation(projects.domain)
+    implementation(project(":core"))
+    implementation(project(":domain"))
 
     // youtube-dl / yt-dlp android library + ffmpeg + aria2c
     implementation(libs.youtubedl.library)

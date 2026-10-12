@@ -31,8 +31,8 @@ android {
 }
 
 dependencies {
-    implementation(projects.core)
-    implementation(projects.domain)
+    implementation(project(":core"))
+    implementation(project(":domain"))
 
     // Compose BOM & Core UI
     implementation(platform(libs.androidx.compose.bom))

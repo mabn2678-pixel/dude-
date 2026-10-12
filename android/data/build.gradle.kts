@@ -31,9 +31,9 @@ android {
 }
 
 dependencies {
-    implementation(projects.core)
-    implementation(projects.domain)
-    implementation(projects.downloader)
+    implementation(project(":core"))
+    implementation(project(":domain"))
+    implementation(project(":downloader"))
 
     // Room
     implementation(libs.room.runtime)
